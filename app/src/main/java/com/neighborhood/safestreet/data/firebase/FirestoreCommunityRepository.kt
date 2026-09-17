@@ -8,6 +8,7 @@ import com.neighborhood.safestreet.common.models.Incident
 import com.neighborhood.safestreet.common.models.IncidentCategory
 import com.neighborhood.safestreet.common.models.ProvenanceType
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 
 class FirestoreCommunityRepository {
@@ -17,8 +18,10 @@ class FirestoreCommunityRepository {
 
     suspend fun ensureAuthenticated() {
         try {
-            if (auth.currentUser == null) {
-                auth.signInAnonymously().await()
+            withTimeoutOrNull(2000L) {
+                if (auth.currentUser == null) {
+                    auth.signInAnonymously().await()
+                }
             }
         } catch (e: Exception) {
             Log.w("FirestoreRepo", "Anonymous auth failed or offline: ${e.message}")
@@ -36,53 +39,55 @@ class FirestoreCommunityRepository {
         }
 
         try {
-            ensureAuthenticated()
-            val snapshot = firestore.collection("communityReports")
-                .orderBy("createdAtEpochMs", Query.Direction.DESCENDING)
-                .limit(50)
-                .get()
-                .await()
+            withTimeoutOrNull(2500L) {
+                ensureAuthenticated()
+                val snapshot = firestore.collection("communityReports")
+                    .orderBy("createdAtEpochMs", Query.Direction.DESCENDING)
+                    .limit(50)
+                    .get()
+                    .await()
 
-            for (doc in snapshot.documents) {
-                val expiresAt = doc.getLong("expiresAtEpochMs") ?: (now + 24 * 3600 * 1000L)
-                val flags = doc.getLong("communityFlags")?.toInt() ?: 0
+                for (doc in snapshot.documents) {
+                    val expiresAt = doc.getLong("expiresAtEpochMs") ?: (now + 24 * 3600 * 1000L)
+                    val flags = doc.getLong("communityFlags")?.toInt() ?: 0
 
-                // Filter expired or heavily flagged reports
-                if (expiresAt <= now || flags >= 3) continue
+                    // Filter expired or heavily flagged reports
+                    if (expiresAt <= now || flags >= 3) continue
 
-                val categoryStr = doc.getString("category") ?: "other_safety"
-                val category = IncidentCategory.fromCode(categoryStr)
-                val confirmations = doc.getLong("communityConfirmations")?.toInt() ?: 0
+                    val categoryStr = doc.getString("category") ?: "other_safety"
+                    val category = IncidentCategory.fromCode(categoryStr)
+                    val confirmations = doc.getLong("communityConfirmations")?.toInt() ?: 0
 
-                val provenance = if (confirmations >= 2) {
-                    ProvenanceType.COMMUNITY_CONFIRMED
-                } else {
-                    ProvenanceType.COMMUNITY_UNVERIFIED
-                }
+                    val provenance = if (confirmations >= 2) {
+                        ProvenanceType.COMMUNITY_CONFIRMED
+                    } else {
+                        ProvenanceType.COMMUNITY_UNVERIFIED
+                    }
 
-                results.add(
-                    Incident(
-                        id = doc.id,
-                        category = category,
-                        subcategory = doc.getString("subcategory"),
-                        title = doc.getString("title") ?: "Community Observation",
-                        description = doc.getString("note"),
-                        occurredAtEpochMs = doc.getLong("createdAtEpochMs") ?: now,
-                        sourceUpdatedAtEpochMs = doc.getLong("createdAtEpochMs") ?: now,
-                        receivedAtEpochMs = doc.getLong("createdAtEpochMs") ?: now,
-                        expiresAtEpochMs = expiresAt,
-                        latitude = doc.getDouble("latitude") ?: 0.0,
-                        longitude = doc.getDouble("longitude") ?: 0.0,
-                        displayAddress = doc.getString("displayAddress") ?: "Nearby Community",
-                        sourceId = "community_reports",
-                        agency = "Community Observation",
-                        provenance = provenance,
-                        communityConfirmations = confirmations,
-                        communityFlags = flags,
-                        licenseInfo = "Community Submitted (Public Awareness)",
-                        isHighPriority = confirmations >= 2
+                    results.add(
+                        Incident(
+                            id = doc.id,
+                            category = category,
+                            subcategory = doc.getString("subcategory"),
+                            title = doc.getString("title") ?: "Community Observation",
+                            description = doc.getString("note"),
+                            occurredAtEpochMs = doc.getLong("createdAtEpochMs") ?: now,
+                            sourceUpdatedAtEpochMs = doc.getLong("createdAtEpochMs") ?: now,
+                            receivedAtEpochMs = doc.getLong("createdAtEpochMs") ?: now,
+                            expiresAtEpochMs = expiresAt,
+                            latitude = doc.getDouble("latitude") ?: 0.0,
+                            longitude = doc.getDouble("longitude") ?: 0.0,
+                            displayAddress = doc.getString("displayAddress") ?: "Local Community Observation",
+                            sourceId = "community_reports",
+                            agency = "Community Observation",
+                            provenance = provenance,
+                            communityConfirmations = confirmations,
+                            communityFlags = flags,
+                            licenseInfo = "Community Submitted (Public Awareness)",
+                            isHighPriority = confirmations >= 2
+                        )
                     )
-                )
+                }
             }
         } catch (e: Exception) {
             Log.w("FirestoreRepo", "Firestore fetch error, using local buffer: ${e.message}")
@@ -136,23 +141,25 @@ class FirestoreCommunityRepository {
         }
 
         try {
-            val docData = hashMapOf(
-                "id" to id,
-                "authorUid" to uid,
-                "category" to category.code,
-                "title" to incident.title,
-                "note" to sanitizedNote,
-                "latitude" to quantizedLat,
-                "longitude" to quantizedLon,
-                "displayAddress" to incident.displayAddress,
-                "createdAtEpochMs" to now,
-                "expiresAtEpochMs" to expiresAt,
-                "communityConfirmations" to 0,
-                "communityFlags" to 0,
-                "verification" to hashMapOf("state" to "community_unverified"),
-                "source" to hashMapOf("kind" to "community")
-            )
-            firestore.collection("communityReports").document(id).set(docData).await()
+            withTimeoutOrNull(2000L) {
+                val docData = hashMapOf(
+                    "id" to id,
+                    "authorUid" to uid,
+                    "category" to category.code,
+                    "title" to incident.title,
+                    "note" to sanitizedNote,
+                    "latitude" to quantizedLat,
+                    "longitude" to quantizedLon,
+                    "displayAddress" to incident.displayAddress,
+                    "createdAtEpochMs" to now,
+                    "expiresAtEpochMs" to expiresAt,
+                    "communityConfirmations" to 0,
+                    "communityFlags" to 0,
+                    "verification" to hashMapOf("state" to "community_unverified"),
+                    "source" to hashMapOf("kind" to "community")
+                )
+                firestore.collection("communityReports").document(id).set(docData).await()
+            }
         } catch (e: Exception) {
             Log.w("FirestoreRepo", "Failed to write to remote Firestore: ${e.message}")
         }
@@ -178,14 +185,16 @@ class FirestoreCommunityRepository {
         }
 
         try {
-            val docRef = firestore.collection("communityReports").document(reportId)
-            val confRef = docRef.collection("confirmations").document(uid)
-            confRef.set(hashMapOf("confirmedAt" to System.currentTimeMillis())).await()
-            firestore.runTransaction { transaction ->
-                val snapshot = transaction.get(docRef)
-                val current = snapshot.getLong("communityConfirmations") ?: 0
-                transaction.update(docRef, "communityConfirmations", current + 1)
-            }.await()
+            withTimeoutOrNull(2000L) {
+                val docRef = firestore.collection("communityReports").document(reportId)
+                val confRef = docRef.collection("confirmations").document(uid)
+                confRef.set(hashMapOf("confirmedAt" to System.currentTimeMillis())).await()
+                firestore.runTransaction { transaction ->
+                    val snapshot = transaction.get(docRef)
+                    val current = snapshot.getLong("communityConfirmations") ?: 0
+                    transaction.update(docRef, "communityConfirmations", current + 1)
+                }.await()
+            }
             return true
         } catch (e: Exception) {
             Log.w("FirestoreRepo", "Confirm failed: ${e.message}")
@@ -211,18 +220,20 @@ class FirestoreCommunityRepository {
         }
 
         try {
-            val docRef = firestore.collection("communityReports").document(reportId)
-            val flagRef = docRef.collection("flags").document(uid)
-            flagRef.set(hashMapOf("reason" to reason, "flaggedAt" to System.currentTimeMillis())).await()
-            firestore.runTransaction { transaction ->
-                val snapshot = transaction.get(docRef)
-                val current = snapshot.getLong("communityFlags") ?: 0
-                val newFlags = current + 1
-                if (newFlags >= 3) {
-                    transaction.update(docRef, "moderationState", "removed")
-                }
-                transaction.update(docRef, "communityFlags", newFlags)
-            }.await()
+            withTimeoutOrNull(2000L) {
+                val docRef = firestore.collection("communityReports").document(reportId)
+                val flagRef = docRef.collection("flags").document(uid)
+                flagRef.set(hashMapOf("reason" to reason, "flaggedAt" to System.currentTimeMillis())).await()
+                firestore.runTransaction { transaction ->
+                    val snapshot = transaction.get(docRef)
+                    val current = snapshot.getLong("communityFlags") ?: 0
+                    val newFlags = current + 1
+                    if (newFlags >= 3) {
+                        transaction.update(docRef, "moderationState", "removed")
+                    }
+                    transaction.update(docRef, "communityFlags", newFlags)
+                }.await()
+            }
             return true
         } catch (e: Exception) {
             Log.w("FirestoreRepo", "Flag failed: ${e.message}")

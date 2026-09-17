@@ -24,6 +24,8 @@ import com.neighborhood.safestreet.ui.theme.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReportBottomSheet(
+    userLatitude: Double = 47.6062,
+    userLongitude: Double = -122.3321,
     onDismiss: () -> Unit,
     onSubmit: (category: IncidentCategory, note: String, lat: Double, lon: Double) -> Unit
 ) {
@@ -39,7 +41,8 @@ fun ReportBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 8.dp)
+                .navigationBarsPadding()
+                .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 20.dp)
         ) {
             Text(
                 text = "Report Community Observation",
@@ -153,8 +156,12 @@ fun ReportBottomSheet(
 
             Button(
                 onClick = {
-                    // Default test coordinates (Seattle or user location)
-                    onSubmit(selectedCategory, noteText.ifBlank { "Observable ${selectedCategory.displayName} reported nearby." }, 47.6062, -122.3321)
+                    onSubmit(
+                        selectedCategory,
+                        noteText.ifBlank { "Observable ${selectedCategory.displayName} reported nearby." },
+                        userLatitude,
+                        userLongitude
+                    )
                 },
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
@@ -163,7 +170,7 @@ fun ReportBottomSheet(
                 Text("Publish Observation (Expires in 24h)", color = DarkBackground, fontWeight = FontWeight.Bold)
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(48.dp))
         }
     }
 }

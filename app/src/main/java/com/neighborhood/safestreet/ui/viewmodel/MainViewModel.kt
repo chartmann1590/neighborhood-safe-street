@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.neighborhood.safestreet.common.models.Incident
 import com.neighborhood.safestreet.common.models.IncidentCategory
 import com.neighborhood.safestreet.common.models.ProvenanceType
+import com.neighborhood.safestreet.common.util.GeoUtils
 import com.neighborhood.safestreet.data.alerts.AlertPreferences
 import com.neighborhood.safestreet.data.alerts.AlertPreferencesRepository
 import com.neighborhood.safestreet.data.alerts.SafetyAlertManager
@@ -23,6 +24,11 @@ enum class AuthorityFilter(val label: String) {
     ALL("All Sources"),
     OFFICIAL_ONLY("Official Only"),
     COMMUNITY_ONLY("Community Only")
+}
+
+enum class IncidentSortOrder(val label: String) {
+    NEAREST("Nearest"),
+    NEWEST("Newest")
 }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -74,6 +80,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedAuthority = MutableStateFlow(AuthorityFilter.ALL)
     val selectedAuthority: StateFlow<AuthorityFilter> = _selectedAuthority.asStateFlow()
 
+    private val _sortOrder = MutableStateFlow(IncidentSortOrder.NEAREST)
+    val sortOrder: StateFlow<IncidentSortOrder> = _sortOrder.asStateFlow()
+
     private val _isRadarView = MutableStateFlow(true)
     val isRadarView: StateFlow<Boolean> = _isRadarView.asStateFlow()
 
@@ -98,9 +107,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val filteredIncidents: StateFlow<List<Incident>> = combine(
         repository.incidents,
         _selectedCategory,
-        _selectedAuthority
-    ) { all, category, authority ->
-        all.filter { incident ->
+        _selectedAuthority,
+        _sortOrder,
+        _userLatitude
+    ) { all, category, authority, sort, userLat ->
+        val userLon = _userLongitude.value
+        val filtered = all.filter { incident ->
             val matchesCategory = category == null || incident.category == category
             val matchesAuthority = when (authority) {
                 AuthorityFilter.ALL -> true
@@ -109,7 +121,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             matchesCategory && matchesAuthority
         }
+
+        when (sort) {
+            IncidentSortOrder.NEAREST -> {
+                filtered.sortedBy { inc ->
+                    GeoUtils.calculateDistanceMiles(userLat, userLon, inc.latitude, inc.longitude)
+                }
+            }
+            IncidentSortOrder.NEWEST -> {
+                filtered.sortedByDescending { it.occurredAtEpochMs }
+            }
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun setSortOrder(order: IncidentSortOrder) {
+        _sortOrder.value = order
+    }
 
     init {
         refresh()
@@ -187,10 +214,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun submitCommunityReport(category: IncidentCategory, note: String, lat: Double, lon: Double) {
+        setShowReportDialog(false)
         viewModelScope.launch {
             val incident = repository.submitCommunityReport(category, lat, lon, note)
             syncToWear(highPriority = incident)
-            setShowReportDialog(false)
         }
     }
 

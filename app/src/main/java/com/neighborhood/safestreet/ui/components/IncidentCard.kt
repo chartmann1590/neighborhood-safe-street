@@ -27,6 +27,7 @@ import com.neighborhood.safestreet.ui.theme.*
 @Composable
 fun IncidentCard(
     incident: Incident,
+    distanceMiles: Double? = null,
     onConfirm: () -> Unit,
     onFlag: (reason: String) -> Unit,
     modifier: Modifier = Modifier
@@ -42,7 +43,7 @@ fun IncidentCard(
         IncidentCategory.ROAD_HAZARD -> WarningYellow
         IncidentCategory.HAZARD_CONDITION -> AlertAmber
         IncidentCategory.WEATHER_HAZARD -> AccentCyan
-        IncidentCategory.OTHER_SAFETY -> PrimaryBlue
+        else -> PrimaryBlue
     }
 
     val categoryIcon: ImageVector = when (incident.category) {
@@ -53,7 +54,7 @@ fun IncidentCard(
         IncidentCategory.ROAD_HAZARD -> Icons.Default.Warning
         IncidentCategory.HAZARD_CONDITION -> Icons.Default.ReportProblem
         IncidentCategory.WEATHER_HAZARD -> Icons.Default.Thunderstorm
-        IncidentCategory.OTHER_SAFETY -> Icons.Default.Shield
+        else -> Icons.Default.Shield
     }
 
     Card(
@@ -65,19 +66,38 @@ fun IncidentCard(
         colors = CardDefaults.cardColors(containerColor = DarkSurface)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // Header: Provenance badge & relative occurrence time
+            // Header: Provenance badge & relative occurrence time + distance
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 ProvenanceBadge(provenance = incident.provenance, expiresAtEpochMs = incident.expiresAtEpochMs)
-                Text(
-                    text = formatRelativeTime(incident.occurredAtEpochMs),
-                    color = TextMuted,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (distanceMiles != null) {
+                        val distText = if (distanceMiles < 0.1) "<0.1 mi" else if (distanceMiles < 10) String.format(java.util.Locale.US, "%.1f mi", distanceMiles) else String.format(java.util.Locale.US, "%.0f mi", distanceMiles)
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(AccentCyan.copy(alpha = 0.15f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "📍 $distText",
+                                color = AccentCyan,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+                    Text(
+                        text = formatRelativeTime(incident.occurredAtEpochMs),
+                        color = TextMuted,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))

@@ -47,6 +47,11 @@ fun FullscreenMapScreen(
     var selectedIncident by remember { mutableStateOf<Incident?>(initialFocusedIncident) }
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
 
+    val activeIncident = remember(selectedIncident, incidents) {
+        if (selectedIncident == null) null
+        else incidents.find { it.id == selectedIncident?.id } ?: selectedIncident
+    }
+
     val filteredIncidents = remember(incidents, selectedCategory) {
         if (selectedCategory == null) incidents
         else incidents.filter { it.category == selectedCategory }
@@ -202,7 +207,7 @@ fun FullscreenMapScreen(
 
         // 3. Floating Incident Detail Card (When an incident marker is tapped)
         AnimatedVisibility(
-            visible = selectedIncident != null,
+            visible = activeIncident != null,
             enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
             modifier = Modifier
@@ -210,7 +215,7 @@ fun FullscreenMapScreen(
                 .padding(14.dp)
                 .navigationBarsPadding()
         ) {
-            val incident = selectedIncident
+            val incident = activeIncident
             if (incident != null) {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = DarkSurface),

@@ -21,9 +21,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neighborhood.safestreet.common.models.IncidentCategory
+import com.neighborhood.safestreet.common.util.GeoUtils
 import com.neighborhood.safestreet.ui.components.*
 import com.neighborhood.safestreet.ui.theme.*
 import com.neighborhood.safestreet.ui.viewmodel.AuthorityFilter
+import com.neighborhood.safestreet.ui.viewmodel.IncidentSortOrder
 import com.neighborhood.safestreet.ui.viewmodel.MainViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -40,6 +42,7 @@ fun MainScreen(
     val lastSyncStatus by viewModel.lastSyncStatus.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val selectedAuthority by viewModel.selectedAuthority.collectAsStateWithLifecycle()
+    val sortOrder by viewModel.sortOrder.collectAsStateWithLifecycle()
     val isRadarView by viewModel.isRadarView.collectAsStateWithLifecycle()
     val showFullscreenMap by viewModel.showFullscreenMap.collectAsStateWithLifecycle()
     val focusedIncidentForMap by viewModel.focusedIncidentForMap.collectAsStateWithLifecycle()
@@ -243,12 +246,13 @@ fun MainScreen(
                 }
             }
 
-            // Authority Filter Chips (Official vs Community)
+            // Authority Filter Chips (Official vs Community) & Proximity Sort Toggle
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 AuthorityFilter.entries.forEach { filter ->
                     val isSelected = filter == selectedAuthority
@@ -264,6 +268,31 @@ fun MainScreen(
                         )
                     )
                 }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                // Sort Order Toggle (Nearest vs Newest)
+                FilterChip(
+                    selected = sortOrder == IncidentSortOrder.NEAREST,
+                    onClick = {
+                        viewModel.setSortOrder(
+                            if (sortOrder == IncidentSortOrder.NEAREST) IncidentSortOrder.NEWEST else IncidentSortOrder.NEAREST
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = if (sortOrder == IncidentSortOrder.NEAREST) "📍 Nearest" else "⏱️ Newest",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = AccentCyan,
+                        selectedLabelColor = DarkBackground,
+                        containerColor = DarkSurface,
+                        labelColor = TextSecondary
+                    )
+                )
             }
 
             // Category Filter Chips
@@ -326,7 +355,8 @@ fun MainScreen(
                                 incidents = incidents,
                                 userLatitude = userLat,
                                 userLongitude = userLon,
-                                onExpandMap = { viewModel.openFullscreenMap() }
+                                onExpandMap = { viewModel.openFullscreenMap() },
+                                onIncidentSelected = { inc -> viewModel.openFullscreenMap(inc) }
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                         }
@@ -349,8 +379,15 @@ fun MainScreen(
                         }
                     } else {
                         items(incidents, key = { it.id }) { incident ->
+                            val dist = GeoUtils.calculateDistanceMiles(
+                                userLat,
+                                userLon,
+                                incident.latitude,
+                                incident.longitude
+                            )
                             IncidentCard(
                                 incident = incident,
+                                distanceMiles = dist,
                                 onConfirm = { viewModel.confirmIncident(incident.id) },
                                 onFlag = { reason -> viewModel.flagIncident(incident.id, reason) }
                             )
@@ -377,6 +414,8 @@ fun MainScreen(
 
     if (showReportDialog) {
         ReportBottomSheet(
+            userLatitude = userLat,
+            userLongitude = userLon,
             onDismiss = { viewModel.setShowReportDialog(false) },
             onSubmit = { category, note, lat, lon ->
                 viewModel.submitCommunityReport(category, note, lat, lon)

@@ -245,6 +245,31 @@ class WearDataManager(
         }
     }
 
+    private fun parseDate(dateStr: String?): Long {
+        if (dateStr.isNullOrBlank()) return 0L
+        val formats = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSSX",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS",
+            "yyyy-MM-dd'T'HH:mm:ssX",
+            "yyyy-MM-dd'T'HH:mm:ss'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd HH:mm:ss.SSSSSSS",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd"
+        )
+        for (fmt in formats) {
+            try {
+                val sdf = SimpleDateFormat(fmt, Locale.US).apply {
+                    timeZone = TimeZone.getTimeZone("UTC")
+                }
+                val parsed = sdf.parse(dateStr)
+                if (parsed != null) return parsed.time
+            } catch (_: Exception) {}
+        }
+        return 0L
+    }
+
     private suspend fun fetchDirectOpenData() = withContext(Dispatchers.IO) {
         val list = mutableListOf<Incident>()
         val (currentLat, currentLon) = getEffectiveLocation()
@@ -263,6 +288,9 @@ class WearDataManager(
                         for (i in 0 until features.length()) {
                             val f = features.getJSONObject(i)
                             val props = f.optJSONObject("properties") ?: continue
+                            val sentStr = props.optString("sent", props.optString("effective", props.optString("onset", "")))
+                            val occurredAt = parseDate(sentStr)
+                            if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
                             val event = props.optString("event", "Public Safety Warning")
                             val area = props.optString("areaDesc", "Nearby Area")
                             list.add(
@@ -272,8 +300,8 @@ class WearDataManager(
                                     subcategory = event,
                                     title = "$event ($area)",
                                     description = props.optString("headline", "Active emergency alert issued for $area."),
-                                    occurredAtEpochMs = now,
-                                    sourceUpdatedAtEpochMs = now,
+                                    occurredAtEpochMs = occurredAt,
+                                    sourceUpdatedAtEpochMs = occurredAt,
                                     receivedAtEpochMs = now,
                                     latitude = currentLat,
                                     longitude = currentLon,
@@ -315,6 +343,10 @@ class WearDataManager(
                             ?: currentLon
                         val org = obj.optString("responding_organization_id", "Public Safety")
 
+                        val createTimeStr = obj.optString("create_time", "")
+                        val occurredAt = parseDate(createTimeStr)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
+
                         val category = when {
                             eventType.contains("crash", ignoreCase = true) || eventType.contains("accident", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
                             eventType.contains("fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
@@ -328,8 +360,8 @@ class WearDataManager(
                                 subcategory = eventType,
                                 title = "$eventType: $facility",
                                 description = "$eventType reported on $facility ($county County)",
-                                occurredAtEpochMs = now - (i * 10 * 60 * 1000L),
-                                sourceUpdatedAtEpochMs = now,
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
                                 receivedAtEpochMs = now,
                                 latitude = itemLat,
                                 longitude = itemLon,
@@ -365,7 +397,8 @@ class WearDataManager(
                         if (lat.isNaN() || lon.isNaN()) continue
                         val mag = props.optDouble("mag", 0.0)
                         val place = props.optString("place", "Seismic Event")
-                        val time = props.optLong("time", now)
+                        val time = props.optLong("time", 0L)
+                        if (time <= 0L || now - time !in -3600000L..86400000L) continue
                         list.add(
                             Incident(
                                 id = "wear_usgs_${f.optString("id", i.toString())}",
@@ -411,7 +444,8 @@ class WearDataManager(
                         val name = attr.optString("IncidentName", "Active Wildfire")
                         val county = attr.optString("POOCounty", "")
                         val state = attr.optString("POOState", "").removePrefix("US-")
-                        val disc = attr.optLong("FireDiscoveryDateTime", now)
+                        val disc = attr.optLong("FireDiscoveryDateTime", 0L)
+                        if (disc <= 0L || now - disc !in -3600000L..86400000L) continue
                         list.add(
                             Incident(
                                 id = "wear_nifc_${attr.optLong("OBJECTID", i.toLong())}",
@@ -455,9 +489,9 @@ class WearDataManager(
                         val desc = attr.optString("Description", "Active Crash/Hazard")
                         val loc = attr.optString("Location", "Ohio")
                         val catName = attr.optString("Category", "Crash")
-                        val dateEpoch = attr.optLong("LastUpdated", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("LastUpdated", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
                         list.add(
                             Incident(
                                 id = "wear_ohgo_${attr.optString("IncidentID", i.toString())}",
@@ -501,9 +535,9 @@ class WearDataManager(
                         val desc = attr.optString("Description", "Active Incident")
                         val incType = attr.optString("IncidentType", "Emergency Incident")
                         val county = attr.optString("County", "MD")
-                        val dateEpoch = attr.optLong("Created", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("Created", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
                         list.add(
                             Incident(
                                 id = "wear_chart_${attr.optString("ID", i.toString())}",
@@ -559,7 +593,7 @@ class WearDataManager(
                         val area = logEl.getElementsByTagName("Area").item(0)?.textContent?.replace("\"", "")?.trim() ?: "CA"
                         val timeStr = logEl.getElementsByTagName("LogTime").item(0)?.textContent?.replace("\"", "")?.trim() ?: ""
 
-                        var occurredAt = now
+                        var occurredAt = 0L
                         val sdf = SimpleDateFormat("MMM dd yyyy h:mma", Locale.US).apply {
                             timeZone = TimeZone.getTimeZone("America/Los_Angeles")
                         }
@@ -568,7 +602,7 @@ class WearDataManager(
                             if (parsed != null) occurredAt = parsed.time
                         } catch (_: Exception) {}
 
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = when {
                             logType.contains("Collision", ignoreCase = true) || logType.contains("Crash", ignoreCase = true) ||
@@ -623,9 +657,9 @@ class WearDataManager(
                         val eventType = attr.optString("EventType", attr.optString("EventSubType", "Traffic Incident"))
                         val loc = attr.optString("Location", attr.optString("Road", "NC Highway"))
                         val county = attr.optString("CountyName", "NC")
-                        val rawTime = attr.optLong("LastUpdateDateTime", now)
-                        val occurredAt = if (rawTime > 0) rawTime else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val rawTime = attr.optLong("LastUpdateDateTime", 0L)
+                        val occurredAt = if (rawTime in 1_000_000_000L..9_999_999_999L) rawTime * 1000L else rawTime
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = when {
                             eventType.contains("accident", ignoreCase = true) || eventType.contains("crash", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
@@ -674,6 +708,10 @@ class WearDataManager(
                         val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("LONGITUDE", Double.NaN)
                         if (lat.isNaN() || lon.isNaN()) continue
 
+                        val updateStr = attr.optString("UPDATED", "")
+                        val occurredAt = parseDate(updateStr)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
+
                         val incType = attr.optString("TYPE", "Traffic Incident")
                         val road = attr.optString("ROADWAY", "FL Highway")
                         val county = attr.optString("COUNTY", "FL")
@@ -685,8 +723,8 @@ class WearDataManager(
                                 subcategory = incType,
                                 title = "$incType: $road",
                                 description = "FL511: $incType on $road ($county)",
-                                occurredAtEpochMs = now,
-                                sourceUpdatedAtEpochMs = now,
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
                                 receivedAtEpochMs = now,
                                 latitude = lat,
                                 longitude = lon,
@@ -719,6 +757,10 @@ class WearDataManager(
                         val lon = geom?.optDouble("x", Double.NaN) ?: Double.NaN
                         if (lat.isNaN() || lon.isNaN()) continue
 
+                        val rawTime = attr.optLong("LastUpdated", attr.optLong("StartDate", 0L))
+                        val occurredAt = if (rawTime in 1_000_000_000L..9_999_999_999L) rawTime * 1000L else rawTime
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
+
                         val eventType = attr.optString("EventType", "Road Incident")
                         val loc = attr.optString("Location", "Utah Highway")
                         val county = attr.optString("County", "UT")
@@ -730,8 +772,8 @@ class WearDataManager(
                                 subcategory = eventType,
                                 title = "$eventType: $loc",
                                 description = "Utah DOT: $eventType on $loc ($county)",
-                                occurredAtEpochMs = now,
-                                sourceUpdatedAtEpochMs = now,
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
                                 receivedAtEpochMs = now,
                                 latitude = lat,
                                 longitude = lon,
@@ -764,6 +806,10 @@ class WearDataManager(
                         val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("longitude", Double.NaN)
                         if (lat.isNaN() || lon.isNaN()) continue
 
+                        val incDateStr = attr.optString("incident_date", "")
+                        val occurredAt = parseDate(incDateStr)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
+
                         val desc = attr.optString("description", "CAD Incident")
                         val loc = attr.optString("location", "Loudoun County")
                         val agency = attr.optString("agency_name", "Loudoun/Middleburg Police")
@@ -775,8 +821,8 @@ class WearDataManager(
                                 subcategory = desc,
                                 title = "$desc: $loc",
                                 description = "Live CAD: $desc at $loc ($agency)",
-                                occurredAtEpochMs = now,
-                                sourceUpdatedAtEpochMs = now,
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
                                 receivedAtEpochMs = now,
                                 latitude = lat,
                                 longitude = lon,
@@ -809,6 +855,10 @@ class WearDataManager(
                         val lon = geom?.optDouble("x", Double.NaN) ?: Double.NaN
                         if (lat.isNaN() || lon.isNaN()) continue
 
+                        val rawTime = attr.optLong("starttime", attr.optLong("created_date", 0L))
+                        val occurredAt = if (rawTime in 1_000_000_000L..9_999_999_999L) rawTime * 1000L else rawTime
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
+
                         val reason = attr.optString("reason", "Hazard")
                         val street = attr.optString("street", "CO Route")
 
@@ -819,14 +869,168 @@ class WearDataManager(
                                 subcategory = reason,
                                 title = "$reason: $street",
                                 description = "CDOT Hazard: $reason on $street",
-                                occurredAtEpochMs = now,
-                                sourceUpdatedAtEpochMs = now,
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
                                 receivedAtEpochMs = now,
                                 latitude = lat,
                                 longitude = lon,
                                 displayAddress = "$street, CO",
                                 sourceId = "wear_co_hazard",
                                 agency = "CDOT",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                isHighPriority = false
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        try {
+            // 13. NOAA Storm Prediction Center Real-Time Storm Reports (Nationwide)
+            val noaaStormUrl = "https://services9.arcgis.com/RHVPKKiFTONKtxq3/arcgis/rest/services/NOAA_storm_reports_v1/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$currentLon,$currentLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=25&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=10"
+            val reqStorm = Request.Builder().url(noaaStormUrl).header("User-Agent", "SafeStreetWear/2.0").build()
+            okHttpClient.newCall(reqStorm).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val feats = root.optJSONArray("features") ?: return@use
+                    for (i in 0 until feats.length()) {
+                        val feat = feats.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("LATITUDE", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("LONGITUDE", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN()) continue
+
+                        val occurredAt = attr.optLong("UTC_DATETIME", 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
+
+                        val loc = attr.optString("LOCATION", "Local Area")
+                        val state = attr.optString("STATE", "US")
+                        val hail = attr.optString("HAIL_SIZE", "")
+                        val subcat = if (hail.isNotBlank() && hail != "0") "Severe Hail ($hail in)" else "Severe Storm"
+
+                        list.add(
+                            Incident(
+                                id = "wear_noaa_spc_${attr.optLong("OBJECTID", i.toLong())}",
+                                category = IncidentCategory.WEATHER_HAZARD,
+                                subcategory = subcat,
+                                title = "$subcat: $loc, $state",
+                                description = attr.optString("COMMENTS", "Severe storm report"),
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$loc, $state",
+                                sourceId = "wear_noaa_spc",
+                                agency = "NOAA Storm Prediction Center",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                isHighPriority = true
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        try {
+            // 14. Alaska 511 Road & Hazard Incidents
+            val akUrl = "https://services1.arcgis.com/7HDiw78fcUiM2BWn/arcgis/rest/services/AK_511_Incidents_v2/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$currentLon,$currentLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=25&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=10"
+            val reqAk = Request.Builder().url(akUrl).header("User-Agent", "SafeStreetWear/2.0").build()
+            okHttpClient.newCall(reqAk).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val feats = root.optJSONArray("features") ?: return@use
+                    for (i in 0 until feats.length()) {
+                        val feat = feats.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("Latitude", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("Longitude", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN()) continue
+
+                        val occurredAt = attr.optLong("LastUpdated", attr.optLong("Reported", 0L))
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
+
+                        val roadway = attr.optString("RoadwayName", "AK Route")
+                        val subType = attr.optString("EventSubType", attr.optString("EventType", "Incident"))
+
+                        list.add(
+                            Incident(
+                                id = "wear_ak511_${attr.optString("ID", i.toString())}",
+                                category = IncidentCategory.ROAD_HAZARD,
+                                subcategory = subType,
+                                title = "$subType: $roadway",
+                                description = attr.optString("Description", "AK 511 Incident on $roadway"),
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$roadway, AK",
+                                sourceId = "wear_ak_511",
+                                agency = "Alaska DOT&PF",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                isHighPriority = false
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        try {
+            // 15. Arizona 911 / AZGeo Live Feed
+            val azUrl = "https://services6.arcgis.com/clPWQMwZfdWn4MQZ/arcgis/rest/services/Arizona_911_Waze_Live_Feed/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$currentLon,$currentLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=25&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=10"
+            val reqAz = Request.Builder().url(azUrl).header("User-Agent", "SafeStreetWear/2.0").build()
+            okHttpClient.newCall(reqAz).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val feats = root.optJSONArray("features") ?: return@use
+                    for (i in 0 until feats.length()) {
+                        val feat = feats.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        var lat = geom?.optDouble("y", Double.NaN) ?: Double.NaN
+                        var lon = geom?.optDouble("x", Double.NaN) ?: Double.NaN
+                        if (lat.isNaN() || lon.isNaN()) {
+                            val locStr = attr.optString("location", "")
+                            if (locStr.isNotBlank() && locStr.startsWith("{")) {
+                                try {
+                                    val locObj = JSONObject(locStr)
+                                    lat = locObj.optDouble("y", Double.NaN)
+                                    lon = locObj.optDouble("x", Double.NaN)
+                                } catch (_: Exception) {}
+                            }
+                        }
+                        if (lat.isNaN() || lon.isNaN()) continue
+
+                        val pubMillisStr = attr.optString("pubMillis", "")
+                        val occurredAt = pubMillisStr.toLongOrNull() ?: attr.optLong("pubMillis", 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
+
+                        val subtype = attr.optString("subtype", attr.optString("type", "Incident"))
+                        val street = attr.optString("street", "Arizona Highway")
+
+                        list.add(
+                            Incident(
+                                id = "wear_az911_${attr.optString("uuid", i.toString())}",
+                                category = IncidentCategory.ROAD_HAZARD,
+                                subcategory = subtype,
+                                title = "$subtype: $street",
+                                description = attr.optString("reportDescription", "AZ 911 Report near $street"),
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$street, AZ",
+                                sourceId = "wear_az_911",
+                                agency = "Arizona 911 / AZGeo",
                                 provenance = ProvenanceType.OFFICIAL_LIVE,
                                 isHighPriority = false
                             )

@@ -24,7 +24,7 @@ class OpenDataClient {
         .readTimeout(8, TimeUnit.SECONDS)
         .build()
 
-    private fun parseDate(dateStr: String?, fallback: Long = System.currentTimeMillis()): Long {
+    private fun parseDate(dateStr: String?, fallback: Long = 0L): Long {
         if (dateStr.isNullOrBlank()) return fallback
         val formats = listOf(
             "yyyy-MM-dd'T'HH:mm:ss.SSS",
@@ -98,8 +98,9 @@ class OpenDataClient {
                 val description = props.optString("description", "")
                 val areaDesc = props.optString("areaDesc", "Affected Area")
                 val severity = props.optString("severity", "Moderate")
-                val sent = props.optString("sent")
-                val occurredAt = parseDate(sent, now)
+                val sent = props.optString("sent", props.optString("effective", props.optString("onset", "")))
+                val occurredAt = parseDate(sent, 0L)
+                if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                 var lat = fallbackLat
                 var lon = fallbackLon
@@ -196,7 +197,8 @@ class OpenDataClient {
                             ?: (if (geomCoords != null && geomCoords.length() >= 2) geomCoords.optDouble(0) else null)
                             ?: lon
                         val createTime = obj.optString("create_time")
-                        val occurredAt = parseDate(createTime, now)
+                        val occurredAt = parseDate(createTime, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
                         val org = obj.optString("responding_organization_id", "NYSDOT")
 
                         val category = when {
@@ -258,7 +260,8 @@ class OpenDataClient {
                         val lon = obj.optDouble("longitude", Double.NaN)
                         if (lat.isNaN() || lon.isNaN()) continue
                         val dtStr = obj.optString("date")
-                        val occurredAt = parseDate(dtStr, now)
+                        val occurredAt = parseDate(dtStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = when {
                             primaryType.contains("ARSON", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
@@ -325,7 +328,8 @@ class OpenDataClient {
                         val lon = obj.optDouble("longitude", Double.NaN)
                         if (lat.isNaN() || lon.isNaN()) continue
                         val dtStr = obj.optString("arrest_date")
-                        val occurredAt = parseDate(dtStr, now)
+                        val occurredAt = parseDate(dtStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         incidents.add(
                             Incident(
@@ -377,7 +381,8 @@ class OpenDataClient {
                         val lon = obj.optDouble("lon", Double.NaN)
                         if (lat.isNaN() || lon.isNaN() || lat == 0.0 || lon == 0.0) continue
                         val dtStr = obj.optString("date_occ")
-                        val occurredAt = parseDate(dtStr, now)
+                        val occurredAt = parseDate(dtStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = when {
                             desc.contains("BURGLARY", ignoreCase = true) || desc.contains("THEFT", ignoreCase = true) -> IncidentCategory.POLICE_ACTIVITY
@@ -435,7 +440,8 @@ class OpenDataClient {
                         val lon = obj.optDouble("longitude", Double.NaN)
                         if (lat.isNaN() || lon.isNaN() || lat == 0.0 || lon == 0.0) continue
                         val dtStr = obj.optString("date")
-                        val occurredAt = parseDate(dtStr, now)
+                        val occurredAt = parseDate(dtStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         incidents.add(
                             Incident(
@@ -486,7 +492,8 @@ class OpenDataClient {
                         val lon = geoObj?.optDouble("longitude", Double.NaN) ?: obj.optDouble("longitude", Double.NaN)
                         if (lat.isNaN() || lon.isNaN() || lat == 0.0 || lon == 0.0) continue
                         val dtStr = obj.optString("reporteddate")
-                        val occurredAt = parseDate(dtStr, now)
+                        val occurredAt = parseDate(dtStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         incidents.add(
                             Incident(
@@ -536,7 +543,8 @@ class OpenDataClient {
                         val lon = obj.optDouble("longitude", Double.NaN)
                         if (lat.isNaN() || lon.isNaN() || lat == 0.0 || lon == 0.0) continue
                         val dtStr = obj.optString("incident_datetime")
-                        val occurredAt = parseDate(dtStr, now)
+                        val occurredAt = parseDate(dtStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         incidents.add(
                             Incident(
@@ -586,7 +594,8 @@ class OpenDataClient {
                         val lon = obj.optDouble("longitude_x", Double.NaN)
                         if (lat.isNaN() || lon.isNaN() || lat == 0.0 || lon == 0.0) continue
                         val dtStr = obj.optString("create_time_incident")
-                        val occurredAt = parseDate(dtStr, now)
+                        val occurredAt = parseDate(dtStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         incidents.add(
                             Incident(
@@ -639,7 +648,8 @@ class OpenDataClient {
 
                         val mag = props.optDouble("mag", 0.0)
                         val place = props.optString("place", "Seismic Event")
-                        val time = props.optLong("time", now)
+                        val time = props.optLong("time", 0L)
+                        if (time <= 0L || now - time !in -3600000L..86400000L) continue
                         val id = f.optString("id", "usgs_$i")
 
                         incidents.add(
@@ -691,7 +701,8 @@ class OpenDataClient {
                         val lat = item.optDouble("latitude", 47.6062)
                         val lon = item.optDouble("longitude", -122.3321)
                         val dtStr = item.optString("datetime")
-                        val occurredAt = parseDate(dtStr, now)
+                        val occurredAt = parseDate(dtStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = when {
                             type.contains("Fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
@@ -758,6 +769,10 @@ class OpenDataClient {
                             else -> IncidentCategory.POLICE_ACTIVITY
                         }
 
+                        val dtStr = item.optString("incident_datetime", item.optString("report_datetime", ""))
+                        val occurredAt = parseDate(dtStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
+
                         incidents.add(
                             Incident(
                                 id = "sfpd_$callNumber",
@@ -765,8 +780,8 @@ class OpenDataClient {
                                 subcategory = callType,
                                 title = "$callType ($address)",
                                 description = "San Francisco Police dispatched call for service at $address.",
-                                occurredAtEpochMs = now - (i * 8 * 60 * 1000L),
-                                sourceUpdatedAtEpochMs = now - (i * 8 * 60 * 1000L),
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
                                 receivedAtEpochMs = now,
                                 latitude = lat,
                                 longitude = lon,
@@ -787,66 +802,8 @@ class OpenDataClient {
         incidents
     }
 
-    // 13. GDACS Disaster Alert & Coordination System GeoJSON (Global)
-    suspend fun fetchGdacsHazards(): List<Incident> = withContext(Dispatchers.IO) {
-        val incidents = mutableListOf<Incident>()
-        try {
-            val url = "https://www.gdacs.org/datareport/resources/GDACS_events.geojson"
-            val request = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
-            client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    val body = response.body?.string() ?: return@use
-                    val geojson = JSONObject(body)
-                    val features = geojson.optJSONArray("features") ?: return@use
-                    val now = System.currentTimeMillis()
-
-                    for (i in 0 until minOf(features.length(), 20)) {
-                        val feature = features.getJSONObject(i)
-                        val props = feature.optJSONObject("properties") ?: continue
-                        val geom = feature.optJSONObject("geometry") ?: continue
-                        val coords = geom.optJSONArray("coordinates") ?: continue
-
-                        val lon = coords.optDouble(0, 0.0)
-                        val lat = coords.optDouble(1, 0.0)
-                        val eventName = props.optString("eventname", "Hazard Alert")
-                        val eventType = props.optString("eventtype", "Hazard")
-                        val alertLevel = props.optString("alertlevel", "Green")
-                        val country = props.optString("country", "Global")
-
-                        val category = when {
-                            eventType.contains("WF", ignoreCase = true) || eventType.contains("Fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
-                            eventType.contains("FL", ignoreCase = true) || eventType.contains("EQ", ignoreCase = true) || eventType.contains("TC", ignoreCase = true) -> IncidentCategory.WEATHER_HAZARD
-                            else -> IncidentCategory.HAZARD_CONDITION
-                        }
-
-                        incidents.add(
-                            Incident(
-                                id = "gdacs_${props.optString("eventid", i.toString())}",
-                                category = category,
-                                subcategory = eventType,
-                                title = "$eventName ($alertLevel Alert)",
-                                description = "GDACS Global Hazard Alert: $eventType reported in $country.",
-                                occurredAtEpochMs = now - (i * 30 * 60 * 1000L),
-                                sourceUpdatedAtEpochMs = now - (i * 10 * 60 * 1000L),
-                                receivedAtEpochMs = now,
-                                latitude = lat,
-                                longitude = lon,
-                                displayAddress = country,
-                                sourceId = "gdacs_global",
-                                agency = "GDACS / UN-European Commission",
-                                provenance = ProvenanceType.OFFICIAL_LIVE,
-                                licenseInfo = "GDACS / United Nations & European Commission Open Data",
-                                isHighPriority = alertLevel.equals("Red", ignoreCase = true) || alertLevel.equals("Orange", ignoreCase = true)
-                            )
-                        )
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("OpenDataClient", "Error fetching GDACS: ${e.message}")
-        }
-        incidents
-    }
+    // 13. GDACS Disaster Alert & Coordination System GeoJSON (Global) - Disabled
+    suspend fun fetchGdacsHazards(): List<Incident> = emptyList()
 
     // 14. Austin Police Department Crime Reports (Austin, TX)
     suspend fun fetchAustinCrimes(): List<Incident> = withContext(Dispatchers.IO) {
@@ -869,7 +826,8 @@ class OpenDataClient {
                         if (lat.isNaN() || lon.isNaN()) continue
 
                         val dateStr = obj.optString("occ_date_time", obj.optString("occ_date"))
-                        val occurredAt = parseDate(dateStr, now)
+                        val occurredAt = parseDate(dateStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
                         val isViolent = crimeType.contains("assault", ignoreCase = true) || crimeType.contains("robbery", ignoreCase = true)
                         val category = when {
                             crimeType.contains("fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
@@ -928,7 +886,8 @@ class OpenDataClient {
                         if (lat.isNaN() || lon.isNaN()) continue
 
                         val dateStr = row.optString("dispatch_date_time")
-                        val occurredAt = parseDate(dateStr, now)
+                        val occurredAt = parseDate(dateStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
                         val isViolent = code.contains("homicide", ignoreCase = true) || code.contains("assault", ignoreCase = true) || code.contains("robbery", ignoreCase = true)
                         val category = when {
                             code.contains("fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
@@ -986,7 +945,8 @@ class OpenDataClient {
                         if (lat.isNaN() || lon.isNaN()) continue
 
                         val dateStr = obj.optString("cmplnt_fr_dt")
-                        val occurredAt = parseDate(dateStr, now)
+                        val occurredAt = parseDate(dateStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
                         val isViolent = offense.contains("assault", ignoreCase = true) || offense.contains("robbery", ignoreCase = true) || offense.contains("murder", ignoreCase = true)
                         val category = when {
                             offense.contains("fire", ignoreCase = true) || offense.contains("arson", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
@@ -1040,7 +1000,9 @@ class OpenDataClient {
                         val ccn = attr.optString("CCN", "dc_$i")
                         val offense = attr.optString("OFFENSE", "Police Incident")
                         val block = attr.optString("BLOCK", "Washington, DC")
-                        val reportDate = attr.optLong("REPORT_DAT", now)
+                        val rawDate = attr.optLong("REPORT_DAT", 0L)
+                        val reportDate = if (rawDate in 1_000_000_000L..9_999_999_999L) rawDate * 1000L else rawDate
+                        if (reportDate <= 0L || now - reportDate !in -3600000L..86400000L) continue
                         val lat = attr.optDouble("LATITUDE", Double.NaN)
                         val lon = attr.optDouble("LONGITUDE", Double.NaN)
                         if (lat.isNaN() || lon.isNaN()) continue
@@ -1101,7 +1063,8 @@ class OpenDataClient {
                         if (lat.isNaN() || lon.isNaN()) continue
 
                         val dateStr = obj.optString("reported_date", obj.optString("from_date"))
-                        val occurredAt = parseDate(dateStr, now)
+                        val occurredAt = parseDate(dateStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
                         val isViolent = desc.contains("assault", ignoreCase = true) || desc.contains("robbery", ignoreCase = true)
                         val category = when {
                             desc.contains("fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
@@ -1166,7 +1129,7 @@ class OpenDataClient {
                         val fireType = attr.optString("IncidentTypeCategory", "Wildfire")
                         val county = attr.optString("POOCounty", "")
                         val state = attr.optString("POOState", "").removePrefix("US-")
-                        val discoveryTime = attr.optLong("FireDiscoveryDateTime", now)
+                        val discoveryTime = attr.optLong("FireDiscoveryDateTime", 0L)
                         val acres = attr.optDouble("IncidentSize", 0.0)
                         val contained = attr.optInt("PercentContained", -1)
 
@@ -1228,7 +1191,8 @@ class OpenDataClient {
                         val killed = obj.optInt("number_of_persons_killed", 0)
 
                         val dateStr = obj.optString("crash_date")
-                        val occurredAt = parseDate(dateStr, now)
+                        val occurredAt = parseDate(dateStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val streetDesc = when {
                             onStreet.isNotBlank() && offStreet.isNotBlank() -> "$onStreet & $offStreet"
@@ -1296,7 +1260,8 @@ class OpenDataClient {
                         val cause = obj.optString("prim_contributory_cause", "")
 
                         val dateStr = obj.optString("crash_date")
-                        val occurredAt = parseDate(dateStr, now)
+                        val occurredAt = parseDate(dateStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         incidents.add(
                             Incident(
@@ -1353,7 +1318,9 @@ class OpenDataClient {
                         val categoryStr = attr.optString("CATEGORY", "Police Incident")
                         val desc = attr.optString("STAT_DESC", categoryStr)
                         val address = attr.optString("ADDRESS", "Los Angeles County, CA")
-                        val dateEpoch = attr.optLong("INCIDENT_DATE", now)
+                        val rawDate = attr.optLong("INCIDENT_DATE", 0L)
+                        val dateEpoch = if (rawDate in 1_000_000_000L..9_999_999_999L) rawDate * 1000L else rawDate
+                        if (dateEpoch <= 0L || now - dateEpoch !in -3600000L..86400000L) continue
 
                         val isViolent = categoryStr.contains("ASSAULT", ignoreCase = true) ||
                             categoryStr.contains("ROBBERY", ignoreCase = true) ||
@@ -1416,7 +1383,8 @@ class OpenDataClient {
                         if (lat.isNaN() || lon.isNaN()) continue
 
                         val dateStr = obj.optString("alarm_dttm")
-                        val occurredAt = parseDate(dateStr, now)
+                        val occurredAt = parseDate(dateStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val cat = when {
                             sit.contains("medical", ignoreCase = true) -> IncidentCategory.MEDICAL_RESPONSE
@@ -1475,7 +1443,8 @@ class OpenDataClient {
                         if (lat.isNaN() || lon.isNaN()) continue
 
                         val dateStr = obj.optString("report_date_time")
-                        val occurredAt = parseDate(dateStr, now)
+                        val occurredAt = parseDate(dateStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val isViolent = offense.contains("ASSAULT", ignoreCase = true) ||
                             offense.contains("ROBBERY", ignoreCase = true) ||
@@ -1537,7 +1506,8 @@ class OpenDataClient {
                         if (lat.isNaN() || lon.isNaN()) continue
 
                         val dateStr = obj.optString("published_date")
-                        val occurredAt = parseDate(dateStr, now)
+                        val occurredAt = parseDate(dateStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val cat = when {
                             issue.contains("crash", ignoreCase = true) || issue.contains("rollover", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
@@ -1595,7 +1565,8 @@ class OpenDataClient {
                         if (lat.isNaN() || lon.isNaN()) continue
 
                         val dateStr = obj.optString("published_date")
-                        val occurredAt = parseDate(dateStr, now)
+                        val occurredAt = parseDate(dateStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val cat = when {
                             issue.contains("crash", ignoreCase = true) || issue.contains("accident", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
@@ -1653,7 +1624,8 @@ class OpenDataClient {
                         if (lat.isNaN() || lon.isNaN()) continue
 
                         val dateStr = obj.optString("timecreate")
-                        val occurredAt = parseDate(dateStr, now)
+                        val occurredAt = parseDate(dateStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val cat = when {
                             typeText.contains("fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
@@ -1718,7 +1690,8 @@ class OpenDataClient {
                         if (lat.isNaN() || lon.isNaN()) continue
 
                         val dateStr = obj.optString("report_date", obj.optString("charge_date"))
-                        val occurredAt = parseDate(dateStr, now)
+                        val occurredAt = parseDate(dateStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val isViolent = offense.contains("assault", ignoreCase = true) ||
                             offense.contains("robbery", ignoreCase = true) ||
@@ -1776,7 +1749,8 @@ class OpenDataClient {
                         if (lat.isNaN() || lon.isNaN()) continue
 
                         val dateStr = obj.optString("crash_date")
-                        val occurredAt = parseDate(dateStr, now)
+                        val occurredAt = parseDate(dateStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val hasInjury = !injury.contains("NO INJURY", ignoreCase = true)
 
@@ -1830,7 +1804,8 @@ class OpenDataClient {
                         if (lat.isNaN() || lon.isNaN()) continue
 
                         val dateStr = obj.optString("date")
-                        val occurredAt = parseDate(dateStr, now)
+                        val occurredAt = parseDate(dateStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val cat = when {
                             incType.contains("ACCIDENT", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
@@ -1895,7 +1870,8 @@ class OpenDataClient {
                         if (lat.isNaN() || lon.isNaN()) continue
 
                         val dateStr = obj.optString("create_time_incident")
-                        val occurredAt = parseDate(dateStr, now)
+                        val occurredAt = parseDate(dateStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val cat = when {
                             agency.equals("CFD", ignoreCase = true) && disp.contains("TRANSPORT", ignoreCase = true) -> IncidentCategory.MEDICAL_RESPONSE
@@ -1953,7 +1929,8 @@ class OpenDataClient {
                         if (lat.isNaN() || lon.isNaN()) continue
 
                         val dateStr = obj.optString("offense_date", obj.optString("report_date"))
-                        val occurredAt = parseDate(dateStr, now)
+                        val occurredAt = parseDate(dateStr, 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val isViolent = narr.contains("BATTERY", ignoreCase = true) ||
                             narr.contains("ASSAULT", ignoreCase = true) ||
@@ -2010,9 +1987,9 @@ class OpenDataClient {
 
                         val offense = attr.optString("offense_de", attr.optString("offense_ca", "Crime Incident"))
                         val addr = attr.optString("address", "Detroit, MI")
-                        val dateEpoch = attr.optLong("incident_date", attr.optLong("ibr_date", now))
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("incident_date", attr.optLong("ibr_date", 0L))
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val objId = attr.optString("FID", attr.optString("crime_id", "$i"))
                         incidents.add(
@@ -2066,9 +2043,9 @@ class OpenDataClient {
 
                         val incidentType = attr.optString("IncidentTypeDescription", "Police Call")
                         val addr = attr.optString("address", "Cleveland, OH")
-                        val dateEpoch = attr.optLong("IncidentDate", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("IncidentDate", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val objId = attr.optString("recordserialno", attr.optString("OBJECTID", "$i"))
                         incidents.add(
@@ -2122,9 +2099,9 @@ class OpenDataClient {
 
                         val desc = attr.optString("crime_description", attr.optString("crime_category", "Crime Incident"))
                         val addr = attr.optString("reported_block_address", "Raleigh, NC")
-                        val dateEpoch = attr.optLong("reported_date", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("reported_date", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val objId = attr.optString("case_number", attr.optString("OBJECTID", "$i"))
                         incidents.add(
@@ -2180,9 +2157,9 @@ class OpenDataClient {
                         val street = attr.optString("Street_Name", "Nashville, TN")
                         val block = attr.optString("Block", "")
                         val addr = if (block.isNotBlank()) "$block $street" else street
-                        val dateEpoch = attr.optLong("Call_Received", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("Call_Received", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val objId = attr.optString("Event_Number", attr.optString("OBJECTID", "$i"))
                         incidents.add(
@@ -2236,9 +2213,9 @@ class OpenDataClient {
 
                         val desc = attr.optString("HIGHEST_NIBRS_DESCRIPTION", "Police Incident")
                         val addr = attr.optString("LOCATION", "Charlotte, NC")
-                        val dateEpoch = attr.optLong("DATE_REPORTED", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("DATE_REPORTED", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val objId = attr.optString("INCIDENT_REPORT_ID", attr.optString("OBJECTID", "$i"))
                         incidents.add(
@@ -2291,9 +2268,9 @@ class OpenDataClient {
                         if (lat.isNaN() || lon.isNaN() || lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) continue
 
                         val addr = attr.optString("IncidentLocation", "Columbus, OH")
-                        val dateEpoch = attr.optLong("OccurredOn", attr.optLong("ReportedOn", now))
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("OccurredOn", attr.optLong("ReportedOn", 0L))
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val objId = attr.optString("OBJECTID", "$i")
                         incidents.add(
@@ -2347,9 +2324,9 @@ class OpenDataClient {
 
                         val offense = attr.optString("OFFENSE_TYPE_ID", "incident").replace("-", " ")
                         val addr = attr.optString("INCIDENT_ADDRESS", "Denver, CO")
-                        val dateEpoch = attr.optLong("FIRST_OCCURRENCE_DATE", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("FIRST_OCCURRENCE_DATE", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val isTraffic = attr.optInt("IS_TRAFFIC", 0) == 1
                         val cat = if (isTraffic) IncidentCategory.VEHICLE_CRASH else IncidentCategory.POLICE_ACTIVITY
@@ -2405,9 +2382,9 @@ class OpenDataClient {
 
                         val crimeType = attr.optString("CRIME_TYPE", "Crime Incident")
                         val addr = attr.optString("BLOCK_ADDRESS", "Tulsa, OK")
-                        val dateEpoch = attr.optLong("START_DATE", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("START_DATE", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val objId = attr.optString("OBJECTID", "$i")
                         incidents.add(
@@ -2461,9 +2438,9 @@ class OpenDataClient {
 
                         val category = attr.optString("NIBRSCategory", "Police Incident")
                         val addr = attr.optString("AddressBlock", "Omaha, NE")
-                        val dateEpoch = attr.optLong("dteMaxSystem", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("dteMaxSystem", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val objId = attr.optString("OBJECTID", "$i")
                         incidents.add(
@@ -2517,9 +2494,9 @@ class OpenDataClient {
 
                         val nature = attr.optString("NatureCodeDesc", "Police Call")
                         val addr = attr.optString("ADDRESS_PUBLIC", "Tucson, AZ")
-                        val dateEpoch = attr.optLong("ACTDATETIME", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("ACTDATETIME", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val objId = attr.optString("call_id", attr.optString("OBJECTID", "$i"))
                         incidents.add(
@@ -2575,9 +2552,9 @@ class OpenDataClient {
                         val streetNum = attr.optString("street_number", "")
                         val streetName = attr.optString("street_name", "Minneapolis, MN")
                         val addr = if (streetNum.isNotBlank()) "$streetNum $streetName" else streetName
-                        val dateEpoch = attr.optLong("alarm_date", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("alarm_date", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val isFire = incidentType.contains("FIRE", true) || incidentType.contains("SMOKE", true) || incidentType.contains("ALARM", true)
                         val cat = if (isFire) IncidentCategory.FIRE_SMOKE else IncidentCategory.MEDICAL_RESPONSE
@@ -2634,9 +2611,9 @@ class OpenDataClient {
                         val desc = attr.optString("Description", "Active Traffic Crash/Hazard")
                         val loc = attr.optString("Location", "Ohio Highway")
                         val catName = attr.optString("Category", "Crash")
-                        val dateEpoch = attr.optLong("LastUpdated", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("LastUpdated", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val objId = attr.optString("IncidentID", attr.optString("OBJECTID", "$i"))
                         incidents.add(
@@ -2691,9 +2668,9 @@ class OpenDataClient {
                         val desc = attr.optString("description", "Police Activity / Travel Disruption")
                         val eventType = attr.optString("event_type", "POLICE ACTIVITY")
                         val source = attr.optString("source", "PA CAD")
-                        val dateEpoch = attr.optLong("start_date", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("start_date", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val objId = attr.optString("event_id", attr.optString("OBJECTID", "$i"))
                         incidents.add(
@@ -2748,9 +2725,9 @@ class OpenDataClient {
                         val desc = attr.optString("Description", "Active Incident")
                         val incType = attr.optString("IncidentType", "Emergency Incident")
                         val county = attr.optString("County", "Maryland")
-                        val dateEpoch = attr.optLong("Created", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("Created", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val objId = attr.optString("ID", attr.optString("rowid", "$i"))
                         incidents.add(
@@ -2805,9 +2782,9 @@ class OpenDataClient {
                         val headline = attr.optString("HeadlineMessage", "Active Road Alert")
                         val catDesc = attr.optString("EventCategoryDescription", "Traffic Alert")
                         val road = attr.optString("Road", "Washington State")
-                        val dateEpoch = attr.optLong("LastModifiedDate", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("LastModifiedDate", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val objId = attr.optString("OBJECTID", "$i")
                         incidents.add(
@@ -2839,218 +2816,13 @@ class OpenDataClient {
         incidents
     }
 
-    // 48. Universal ArcGIS REST Spatial Discovery Engine (Discovers and queries county/city public safety GIS layers)
-    suspend fun fetchArcGisDiscovery(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
-        val incidents = mutableListOf<Incident>()
-        try {
-            val deltaDeg = (radiusMiles / 69.0).coerceIn(0.2, 1.5)
-            val minLat = String.format(Locale.US, "%.4f", userLat - deltaDeg)
-            val maxLat = String.format(Locale.US, "%.4f", userLat + deltaDeg)
-            val minLon = String.format(Locale.US, "%.4f", userLon - deltaDeg)
-            val maxLon = String.format(Locale.US, "%.4f", userLon + deltaDeg)
+    // 48. Legacy Dynamic Discovery Engine - Permanently disabled to eliminate unverified phantom/NFIRS alerts
+    suspend fun fetchArcGisDiscovery(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = emptyList()
 
-            val bboxSearchUrl = "https://www.arcgis.com/sharing/rest/search?q=type:%22Feature%20Service%22%20AND%20(crime%20OR%20police%20OR%20fire%20OR%20traffic%20OR%20cad%20OR%20hazard%20OR%20incident)&bbox=$minLon,$minLat,$maxLon,$maxLat&f=json&num=10"
-            val fallbackSearchUrl = "https://www.arcgis.com/sharing/rest/search?q=type:%22Feature%20Service%22%20AND%20(tags:%22crime%22%20OR%20tags:%22police%22%20OR%20tags:%22fire%22%20OR%20tags:%22traffic%22%20OR%20tags:%22cad%22)&f=json&num=8"
+    // 34. Legacy Dynamic Regional Socrata Discovery Engine - Permanently disabled to guarantee strict zero fake freshness
+    suspend fun fetchSocrataDiscovery(userLat: Double, userLon: Double, radiusMeters: Int = 40233): List<Incident> = emptyList()
 
-            val candidateUrls = mutableListOf<Pair<String, String>>() // url, title
-
-            // Try localized bounding box discovery first
-            val searchReq = Request.Builder().url(bboxSearchUrl).header("User-Agent", "SafeStreetApp/2.0").build()
-            client.newCall(searchReq).execute().use { resp ->
-                if (resp.isSuccessful) {
-                    val body = resp.body?.string() ?: ""
-                    val root = JSONObject(body)
-                    val results = root.optJSONArray("results")
-                    if (results != null) {
-                        for (i in 0 until results.length()) {
-                            val item = results.getJSONObject(i)
-                            val serviceUrl = item.optString("url")
-                            val title = item.optString("title", "Local Public Safety Layer")
-                            if (serviceUrl.isNotBlank() && serviceUrl.startsWith("https://")) {
-                                candidateUrls.add(Pair(serviceUrl, title))
-                            }
-                        }
-                    }
-                }
-            }
-
-            // If bbox returned nothing, query nationwide public safety tags
-            if (candidateUrls.isEmpty()) {
-                val fallbackReq = Request.Builder().url(fallbackSearchUrl).header("User-Agent", "SafeStreetApp/2.0").build()
-                client.newCall(fallbackReq).execute().use { resp ->
-                    if (resp.isSuccessful) {
-                        val body = resp.body?.string() ?: ""
-                        val root = JSONObject(body)
-                        val results = root.optJSONArray("results")
-                        if (results != null) {
-                            for (i in 0 until results.length()) {
-                                val item = results.getJSONObject(i)
-                                val serviceUrl = item.optString("url")
-                                val title = item.optString("title", "Public Safety Layer")
-                                if (serviceUrl.isNotBlank() && serviceUrl.startsWith("https://")) {
-                                    candidateUrls.add(Pair(serviceUrl, title))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            val now = System.currentTimeMillis()
-            for ((serviceUrl, title) in candidateUrls.take(4)) {
-                try {
-                    val queryUrl = "$serviceUrl/0/query?geometry=$userLon,$userLat&geometryType=esriGeometryPoint&inSR=4326&distance=$radiusMiles&units=esriSRUnit_StatuteMile&spatialRel=esriSpatialRelIntersects&outSR=4326&outFields=*&f=json&resultRecordCount=10"
-                    val queryReq = Request.Builder().url(queryUrl).header("User-Agent", "SafeStreetApp/2.0").build()
-                    client.newCall(queryReq).execute().use { qResp ->
-                        if (qResp.isSuccessful) {
-                            val qBody = qResp.body?.string() ?: return@use
-                            val qRoot = JSONObject(qBody)
-                            val features = qRoot.optJSONArray("features") ?: return@use
-                            for (f in 0 until features.length()) {
-                                val feat = features.getJSONObject(f)
-                                val attr = feat.optJSONObject("attributes") ?: continue
-                                val geom = feat.optJSONObject("geometry")
-
-                                val lat = geom?.optDouble("y", Double.NaN)
-                                    ?: attr.optString("LATITUDE").toDoubleOrNull()
-                                    ?: attr.optDouble("LATITUDE", Double.NaN).takeIf { !it.isNaN() }
-                                    ?: Double.NaN
-                                val lon = geom?.optDouble("x", Double.NaN)
-                                    ?: attr.optString("LONGITUDE").toDoubleOrNull()
-                                    ?: attr.optDouble("LONGITUDE", Double.NaN).takeIf { !it.isNaN() }
-                                    ?: Double.NaN
-
-                                if (lat.isNaN() || lon.isNaN() || lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) continue
-
-                                val dateEpoch = attr.optLong("DATE", attr.optLong("DATE_REPORTED", attr.optLong("IncidentDate", attr.optLong("alarm_date", attr.optLong("Created", now)))))
-                                val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                                if (now - occurredAt !in -3600000L..86400000L) continue
-
-                                val objId = attr.optLong("OBJECTID", f.toLong())
-                                val catName = attr.optString("CATEGORY", attr.optString("INCIDENT_TYPE", attr.optString("OFFENSE", title)))
-                                val addr = attr.optString("ADDRESS", attr.optString("LOCATION", "Local Jurisdiction"))
-
-                                incidents.add(
-                                    Incident(
-                                        id = "arcgis_${Math.abs(serviceUrl.hashCode())}_$objId",
-                                        category = IncidentCategory.POLICE_ACTIVITY,
-                                        subcategory = catName,
-                                        title = catName,
-                                        description = "ArcGIS Spatial Feed ($title): $catName near $addr.",
-                                        occurredAtEpochMs = occurredAt,
-                                        sourceUpdatedAtEpochMs = occurredAt,
-                                        receivedAtEpochMs = now,
-                                        latitude = lat,
-                                        longitude = lon,
-                                        displayAddress = addr,
-                                        sourceId = "arcgis_spatial_discovery",
-                                        agency = title,
-                                        provenance = ProvenanceType.OFFICIAL_LIVE,
-                                        licenseInfo = "ArcGIS Open Data Public Service",
-                                        isHighPriority = false
-                                    )
-                                )
-                            }
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
-        } catch (e: Exception) {
-            Log.e("OpenDataClient", "Error in ArcGIS discovery: ${e.message}")
-        }
-        incidents
-    }
-
-    // 34. Dynamic Regional Socrata Discovery Engine (Universal US Open Data Query across all 50 states)
-    suspend fun fetchSocrataDiscovery(userLat: Double, userLon: Double, radiusMeters: Int = 40233): List<Incident> = withContext(Dispatchers.IO) {
-        val incidents = mutableListOf<Incident>()
-        try {
-            // Query Socrata ODN Discovery catalog for public safety, CAD, crime, and fire datasets nationwide
-            val catalogUrl = "https://api.us.socrata.com/api/catalog/v1?q=police%20OR%20crime%20OR%20traffic%20OR%20fire%20OR%20%22calls%20for%20service%22&only=datasets&limit=25"
-            val catReq = Request.Builder().url(catalogUrl).header("User-Agent", "SafeStreetApp/2.0").build()
-            val candidateDatasets = mutableListOf<Triple<String, String, String>>() // domain, id, geoCol
-
-            client.newCall(catReq).execute().use { resp ->
-                if (resp.isSuccessful) {
-                    val body = resp.body?.string() ?: return@use
-                    val root = JSONObject(body)
-                    val results = root.optJSONArray("results") ?: return@use
-                    for (i in 0 until results.length()) {
-                        val item = results.getJSONObject(i)
-                        val meta = item.optJSONObject("metadata") ?: continue
-                        val res = item.optJSONObject("resource") ?: continue
-                        val domain = meta.optString("domain")
-                        val id = res.optString("id")
-                        val cols = res.optString("columns_field_name").split(" ")
-                        val types = res.optString("columns_datatype").split(" ")
-
-                        var geoCol = ""
-                        for (c in 0 until minOf(cols.size, types.size)) {
-                            if (types[c].equals("Point", ignoreCase = true) || types[c].equals("Location", ignoreCase = true)) {
-                                geoCol = cols[c]
-                                break
-                            }
-                        }
-                        if (domain.isNotBlank() && id.isNotBlank() && geoCol.isNotBlank()) {
-                            candidateDatasets.add(Triple(domain, id, geoCol))
-                        }
-                    }
-                }
-            }
-
-            // Query geospatial records within user radius for discovered portals
-            val now = System.currentTimeMillis()
-            for ((domain, datasetId, geoCol) in candidateDatasets.take(4)) {
-                try {
-                    val dataUrl = "https://$domain/resource/$datasetId.json?\$where=within_circle($geoCol,$userLat,$userLon,$radiusMeters)&\$limit=10"
-                    val dataReq = Request.Builder().url(dataUrl).header("User-Agent", "SafeStreetApp/2.0").build()
-                    client.newCall(dataReq).execute().use { resp ->
-                        if (resp.isSuccessful) {
-                            val dataBody = resp.body?.string() ?: return@use
-                            val records = JSONArray(dataBody)
-                            for (r in 0 until records.length()) {
-                                val obj = records.getJSONObject(r)
-                                val lat = obj.optString("latitude").toDoubleOrNull()
-                                    ?: obj.optJSONObject(geoCol)?.optJSONArray("coordinates")?.optDouble(1)
-                                    ?: obj.optDouble("latitude", Double.NaN)
-                                val lon = obj.optString("longitude").toDoubleOrNull()
-                                    ?: obj.optJSONObject(geoCol)?.optJSONArray("coordinates")?.optDouble(0)
-                                    ?: obj.optDouble("longitude", Double.NaN)
-                                if (lat.isNaN() || lon.isNaN() || lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) continue
-
-                                val title = obj.optString("event_type", obj.optString("crime_type", obj.optString("offense", obj.optString("description", "Public Safety Report"))))
-                                incidents.add(
-                                    Incident(
-                                        id = "socrata_${datasetId}_${r}_$now",
-                                        category = IncidentCategory.POLICE_ACTIVITY,
-                                        subcategory = title,
-                                        title = title.replaceFirstChar { it.uppercase() },
-                                        description = "Authoritative municipal public safety record discovered via $domain.",
-                                        occurredAtEpochMs = now,
-                                        sourceUpdatedAtEpochMs = now,
-                                        receivedAtEpochMs = now,
-                                        latitude = lat,
-                                        longitude = lon,
-                                        displayAddress = domain,
-                                        sourceId = "socrata_odn_$datasetId",
-                                        agency = "$domain Open Data",
-                                        provenance = ProvenanceType.OFFICIAL_LIVE,
-                                        licenseInfo = "Socrata Open Data Network (Public)",
-                                        isHighPriority = false
-                                    )
-                                )
-                            }
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
-        } catch (e: Exception) {
-            Log.e("OpenDataClient", "Error in Socrata discovery: ${e.message}")
-        }
-        incidents
-    }
-
-    private fun parseChpDate(dateStr: String?, fallback: Long = System.currentTimeMillis()): Long {
+    private fun parseChpDate(dateStr: String?, fallback: Long = 0L): Long {
         if (dateStr.isNullOrBlank()) return fallback
         val formats = listOf(
             "MMM dd yyyy h:mma",
@@ -3108,7 +2880,7 @@ class OpenDataClient {
                         val area = logEl.getElementsByTagName("Area").item(0)?.textContent?.replace("\"", "")?.trim() ?: "California"
                         val timeStr = logEl.getElementsByTagName("LogTime").item(0)?.textContent?.replace("\"", "")?.trim() ?: ""
 
-                        val occurredAt = parseChpDate(timeStr, now)
+                        val occurredAt = parseChpDate(timeStr, 0L)
                         if (now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = when {
@@ -3182,8 +2954,8 @@ class OpenDataClient {
                         val county = attr.optString("County", "UT")
 
                         val rawTime = attr.optLong("LastUpdated", 0L)
-                        val occurredAt = if (rawTime in 1_000_000_000L..9_999_999_999L) rawTime * 1000L else if (rawTime > 0) rawTime else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val occurredAt = if (rawTime in 1_000_000_000L..9_999_999_999L) rawTime * 1000L else rawTime
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = when {
                             eventType.contains("crash", ignoreCase = true) || desc.contains("crash", ignoreCase = true) ||
@@ -3255,9 +3027,9 @@ class OpenDataClient {
                         val county = attr.optString("County_Name", "KY")
                         val desc = attr.optString("Comments", attr.optString("Impact", "Emergency incident reported."))
 
-                        val rawTime = attr.optLong("Incident_Date", attr.optLong("EditDate", now))
-                        val occurredAt = if (rawTime > 0) rawTime else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val rawTime = attr.optLong("Incident_Date", attr.optLong("EditDate", 0L))
+                        val occurredAt = if (rawTime in 1_000_000_000L..9_999_999_999L) rawTime * 1000L else rawTime
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = when {
                             incType.contains("Flood", ignoreCase = true) || incType.contains("Rain", ignoreCase = true) -> IncidentCategory.WEATHER_HAZARD
@@ -3324,9 +3096,9 @@ class OpenDataClient {
                         val county = attr.optString("CountyName", "NC")
                         val condition = attr.optString("Condition", "")
 
-                        val rawTime = attr.optLong("LastUpdateDateTime", attr.optLong("StartDateTime", now))
-                        val occurredAt = if (rawTime > 0) rawTime else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val rawTime = attr.optLong("LastUpdateDateTime", attr.optLong("StartDateTime", 0L))
+                        val occurredAt = if (rawTime in 1_000_000_000L..9_999_999_999L) rawTime * 1000L else rawTime
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = when {
                             eventType.contains("accident", ignoreCase = true) || eventType.contains("crash", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
@@ -3392,7 +3164,7 @@ class OpenDataClient {
                         val road = attr.optString("ROADWAY", "Florida Highway")
                         val county = attr.optString("COUNTY", "FL")
                         val updatedStr = attr.optString("UPDATED")
-                        val occurredAt = parseDate(updatedStr, now)
+                        val occurredAt = parseDate(updatedStr, 0L)
                         if (now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = when {
@@ -3458,9 +3230,9 @@ class OpenDataClient {
                         val typeDesc = attr.optString("IncidentTypeDescription", "911 CAD Dispatch")
                         val loc = attr.optString("Location", "Leon County, FL")
                         val locName = attr.optString("LocationName", "")
-                        val dateEpoch = attr.optLong("IncidentDate", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("IncidentDate", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = when {
                             typeDesc.contains("COLLISION", ignoreCase = true) || typeDesc.contains("CRASH", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
@@ -3527,9 +3299,9 @@ class OpenDataClient {
                         val headline = attr.optString("headline", attr.optString("STYLE", "Iowa 511 Alert"))
                         val route = attr.optString("Route", "Highway")
                         val cause = attr.optString("cause", "")
-                        val dateEpoch = attr.optLong("CreationDa", attr.optLong("EditDate", now))
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("CreationDa", attr.optLong("EditDate", 0L))
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = when {
                             headline.contains("crash", ignoreCase = true) || cause.contains("crash", ignoreCase = true) ||
@@ -3596,9 +3368,9 @@ class OpenDataClient {
                         val loc = attr.optString("Location", "Las Vegas Metro")
                         val area = attr.optString("Area_Command", "LVMPD")
                         val eventNum = attr.optString("Event_Number", "")
-                        val dateEpoch = attr.optLong("ReportedOn", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("ReportedOn", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = IncidentCategory.POLICE_ACTIVITY
                         val objId = attr.optLong("OBJECTID", i.toLong())
@@ -3658,7 +3430,7 @@ class OpenDataClient {
                         val agencyName = attr.optString("agency_name", "Loudoun County Sheriff / Middleburg Police")
                         val location = attr.optString("location", "Loudoun County")
                         val dateStr = attr.optString("incident_date", "")
-                        val occurredAt = parseDate(dateStr, now)
+                        val occurredAt = parseDate(dateStr, 0L)
                         if (now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = when {
@@ -3725,9 +3497,9 @@ class OpenDataClient {
                         val desc = attr.optString("Description", "Police Incident")
                         val loc = attr.optString("Location", "Baltimore")
                         val neighborhood = attr.optString("Neighborhood", "")
-                        val dateEpoch = attr.optLong("CrimeDateTime", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("CrimeDateTime", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = IncidentCategory.POLICE_ACTIVITY
                         val rowId = attr.optLong("RowID", i.toLong())
@@ -3787,9 +3559,9 @@ class OpenDataClient {
                         val desc = attr.optString("OFFENSE_DESCRIPTION", "Police Incident")
                         val street = attr.optString("STREET", "Boston")
                         val district = attr.optString("DISTRICT", "BPD")
-                        val dateEpoch = attr.optLong("IncidentDate", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("IncidentDate", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = IncidentCategory.POLICE_ACTIVITY
                         val objId = attr.optLong("OBJECTID", i.toLong())
@@ -3848,9 +3620,9 @@ class OpenDataClient {
                         val offense = attr.optString("nibrsoffense", attr.optString("nibrsdesc", "Police Incident"))
                         val addr = attr.optString("fulladdr", "Tampa")
                         val district = attr.optString("district", "")
-                        val dateEpoch = attr.optLong("reportdate", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("reportdate", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = IncidentCategory.POLICE_ACTIVITY
                         val objId = attr.optLong("OBJECTID", i.toLong())
@@ -3909,9 +3681,9 @@ class OpenDataClient {
                         val offense = attr.optString("OffenseDes", attr.optString("OffenseTyp", "Police Incident"))
                         val addr = attr.optString("Match_addr", attr.optString("StreetName", "Houston"))
                         val district = attr.optString("District", "")
-                        val dateEpoch = attr.optLong("created_da", attr.optLong("OffenseDat", now))
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("created_da", attr.optLong("OffenseDat", 0L))
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = IncidentCategory.POLICE_ACTIVITY
                         val objId = attr.optLong("OBJECTID", attr.optLong("FID", i.toLong()))
@@ -3970,9 +3742,9 @@ class OpenDataClient {
                         val nature = attr.optString("NATURE_OF_CALL", "911 CAD Call")
                         val street = attr.optString("STREET", "St. Louis Regional")
                         val agencyName = attr.optString("RA_AGENCY_NAME", "Lincoln County Ambulance & Police")
-                        val dateEpoch = attr.optLong("DATE_TIME_TS", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("DATE_TIME_TS", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = when {
                             nature.contains("OVERDOSE", ignoreCase = true) || nature.contains("CARDIAC", ignoreCase = true) ||
@@ -4038,9 +3810,9 @@ class OpenDataClient {
                         val reason = attr.optString("reason", "Hazard")
                         val desc = attr.optString("description", "Road Hazard Closure")
                         val street = attr.optString("street", "Colorado Route")
-                        val dateEpoch = attr.optLong("starttime", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("starttime", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = when {
                             reason.contains("flood", ignoreCase = true) || desc.contains("flood", ignoreCase = true) ||
@@ -4105,9 +3877,9 @@ class OpenDataClient {
 
                         val offenseType = attr.optString("OffenseType", attr.optString("OffenseCategory", "Police Incident"))
                         val addr = attr.optString("Address", "Portland")
-                        val dateEpoch = attr.optLong("ReportDate", attr.optLong("OccurDate", now))
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("ReportDate", attr.optLong("OccurDate", 0L))
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = IncidentCategory.POLICE_ACTIVITY
                         val objId = attr.optLong("OBJECTID", i.toLong())
@@ -4165,9 +3937,9 @@ class OpenDataClient {
 
                         val problem = attr.optString("Problem", "Calls for Service")
                         val addr = attr.optString("Address", "Boulder")
-                        val dateEpoch = attr.optLong("Response_Date", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("Response_Date", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = when {
                             problem.contains("CRASH", ignoreCase = true) || problem.contains("ACCIDENT", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
@@ -4231,9 +4003,9 @@ class OpenDataClient {
                         val desc = attr.optString("description", attr.optString("offense", "Police Incident"))
                         val addr = attr.optString("publicaddress", "Minneapolis")
                         val precinct = attr.optString("precinct", "")
-                        val dateEpoch = attr.optLong("reportedDateTime", attr.optLong("reportedDate", now))
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("reportedDateTime", attr.optLong("reportedDate", 0L))
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = IncidentCategory.POLICE_ACTIVITY
                         val objId = attr.optLong("OBJECTID", i.toLong())
@@ -4291,9 +4063,9 @@ class OpenDataClient {
 
                         val callType = attr.optString("CallType", attr.optString("Call_Category", "CAD Dispatch"))
                         val addr = attr.optString("Address", "Princeton")
-                        val dateEpoch = attr.optLong("Received", now)
-                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
-                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        val dateEpoch = attr.optLong("Received", 0L)
+                        val occurredAt = if (dateEpoch in 1_000_000_000L..9_999_999_999L) dateEpoch * 1000L else dateEpoch
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
 
                         val category = when {
                             callType.contains("CRASH", ignoreCase = true) || callType.contains("ACCIDENT", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
@@ -4328,6 +4100,704 @@ class OpenDataClient {
             }
         } catch (e: Exception) {
             Log.e("OpenDataClient", "Error fetching Princeton CAD: ${e.message}")
+        }
+        incidents
+    }
+
+    // 68. Alaska Department of Transportation & Public Facilities (AK 511 Statewide Road & Hazard Incidents)
+    suspend fun fetchAlaska511Incidents(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services1.arcgis.com/7HDiw78fcUiM2BWn/arcgis/rest/services/AK_511_Incidents_v2/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=50"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val feat = features.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("Latitude", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("Longitude", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN() || lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+
+                        val dist = GeoUtils.calculateDistanceMiles(userLat, userLon, lat, lon)
+                        if (dist > radiusMiles) continue
+
+                        val occurredAt = attr.optLong("LastUpdated", attr.optLong("Reported", 0L))
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
+
+                        val roadway = attr.optString("RoadwayName", "Alaska Highway")
+                        val eventType = attr.optString("EventType", "Incident")
+                        val eventSubType = attr.optString("EventSubType", "")
+                        val desc = attr.optString("Description", "$eventType on $roadway")
+                        val details = attr.optString("Details", "")
+                        val fullDesc = if (details.isNotBlank()) "$desc. $details" else desc
+
+                        val category = when {
+                            eventType.contains("accident", ignoreCase = true) || eventType.contains("crash", ignoreCase = true) ||
+                                eventSubType.contains("crash", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
+                            eventType.contains("fire", ignoreCase = true) || desc.contains("fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
+                            else -> IncidentCategory.ROAD_HAZARD
+                        }
+
+                        val objId = attr.optLong("OBJECTID", i.toLong())
+                        val incidentId = attr.optString("ID", objId.toString())
+                        incidents.add(
+                            Incident(
+                                id = "ak511_$incidentId",
+                                category = category,
+                                subcategory = if (eventSubType.isNotBlank()) eventSubType else eventType,
+                                title = "$roadway: ${if (eventSubType.isNotBlank()) eventSubType else eventType}",
+                                description = fullDesc,
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$roadway, Alaska",
+                                sourceId = "ak_511_incidents",
+                                agency = "Alaska DOT&PF (AK 511)",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "State of Alaska Open Data",
+                                isHighPriority = category == IncidentCategory.VEHICLE_CRASH
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Alaska 511: ${e.message}")
+        }
+        incidents
+    }
+
+    // 69. Arizona Statewide 911 / AZGeo Live Public Safety Feed (AZ 911)
+    suspend fun fetchArizona911Incidents(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services6.arcgis.com/clPWQMwZfdWn4MQZ/arcgis/rest/services/Arizona_911_Waze_Live_Feed/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=50"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val feat = features.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+
+                        var lat = geom?.optDouble("y", Double.NaN) ?: Double.NaN
+                        var lon = geom?.optDouble("x", Double.NaN) ?: Double.NaN
+                        if (lat.isNaN() || lon.isNaN()) {
+                            val locStr = attr.optString("location", "")
+                            if (locStr.isNotBlank() && locStr.startsWith("{")) {
+                                try {
+                                    val locObj = JSONObject(locStr)
+                                    lat = locObj.optDouble("y", Double.NaN)
+                                    lon = locObj.optDouble("x", Double.NaN)
+                                } catch (_: Exception) {}
+                            }
+                        }
+                        if (lat.isNaN() || lon.isNaN() || lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+
+                        val dist = GeoUtils.calculateDistanceMiles(userLat, userLon, lat, lon)
+                        if (dist > radiusMiles) continue
+
+                        val pubMillisStr = attr.optString("pubMillis", "")
+                        val occurredAt = pubMillisStr.toLongOrNull() ?: attr.optLong("pubMillis", parseDate(attr.optString("date_and_time"), 0L))
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
+
+                        val type = attr.optString("type", "Public Safety Report")
+                        val subtype = attr.optString("subtype", type)
+                        val desc = attr.optString("reportDescription", "$subtype in Arizona")
+                        val street = attr.optString("street", "Arizona Public Safety Corridor")
+                        val city = attr.optString("city", "AZ")
+
+                        val category = when {
+                            type.contains("Accident", ignoreCase = true) || subtype.contains("Crash", ignoreCase = true) ||
+                                subtype.contains("Accident", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
+                            type.contains("Hazard", ignoreCase = true) || subtype.contains("Hazard", ignoreCase = true) -> IncidentCategory.ROAD_HAZARD
+                            type.contains("Police", ignoreCase = true) || subtype.contains("Police", ignoreCase = true) -> IncidentCategory.POLICE_ACTIVITY
+                            else -> IncidentCategory.ROAD_HAZARD
+                        }
+
+                        val uuid = attr.optString("uuid", attr.optLong("OBJECTID", i.toLong()).toString())
+                        incidents.add(
+                            Incident(
+                                id = "az911_$uuid",
+                                category = category,
+                                subcategory = subtype,
+                                title = "$subtype: $street",
+                                description = "Arizona 911 Public Safety Live Feed: $desc near $street ($city).",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = if (city.isNotBlank() && city != "AZ") "$street, $city, AZ" else "$street, AZ",
+                                sourceId = "arizona_911_live",
+                                agency = "Arizona 911 / AZGeo Public Safety",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "AZGeo Clearinghouse / State of Arizona",
+                                isHighPriority = category == IncidentCategory.VEHICLE_CRASH
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Arizona 911: ${e.message}")
+        }
+        incidents
+    }
+
+    // 70. Arizona Department of Transportation Statewide Traffic Events (ADOT)
+    suspend fun fetchAdotTrafficEvents(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services6.arcgis.com/clPWQMwZfdWn4MQZ/arcgis/rest/services/ADOT_Traffic_Events/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=50"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val feat = features.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("LatitudeSecondary", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("LongitudeSecondary", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN() || lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+
+                        val dist = GeoUtils.calculateDistanceMiles(userLat, userLon, lat, lon)
+                        if (dist > radiusMiles) continue
+
+                        val occurredAt = attr.optLong("LastUpdated", attr.optLong("Reported", 0L))
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
+
+                        val roadway = attr.optString("RoadwayName", "Arizona Highway")
+                        val eventType = attr.optString("EventType", "Traffic Event")
+                        val eventSubType = attr.optString("EventSubType", "")
+                        val desc = attr.optString("Description", "$eventType on $roadway")
+                        val details = attr.optString("Details", "")
+                        val fullDesc = if (details.isNotBlank()) "$desc. $details" else desc
+
+                        val category = when {
+                            eventType.contains("accident", ignoreCase = true) || eventType.contains("crash", ignoreCase = true) ||
+                                eventSubType.contains("crash", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
+                            eventType.contains("fire", ignoreCase = true) || desc.contains("fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
+                            else -> IncidentCategory.ROAD_HAZARD
+                        }
+
+                        val objId = attr.optLong("ObjectId", attr.optLong("OBJECTID", i.toLong()))
+                        incidents.add(
+                            Incident(
+                                id = "adot_$objId",
+                                category = category,
+                                subcategory = if (eventSubType.isNotBlank()) eventSubType else eventType,
+                                title = "$roadway: ${if (eventSubType.isNotBlank()) eventSubType else eventType}",
+                                description = fullDesc,
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$roadway, Arizona",
+                                sourceId = "adot_traffic_events",
+                                agency = "Arizona Department of Transportation (ADOT)",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "ADOT Open Data",
+                                isHighPriority = category == IncidentCategory.VEHICLE_CRASH
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching ADOT traffic events: ${e.message}")
+        }
+        incidents
+    }
+
+    // 71. Georgia Emergency Management & Homeland Security / GDOT 511 Statewide Events (Georgia & Atlanta)
+    suspend fun fetchGeorgia511Incidents(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services1.arcgis.com/2iUE8l8JKrP2tygQ/arcgis/rest/services/GDOT_511_Events_Public_View/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=50"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val feat = features.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("Latitude", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("Longitude", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN() || lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+
+                        val dist = GeoUtils.calculateDistanceMiles(userLat, userLon, lat, lon)
+                        if (dist > radiusMiles) continue
+
+                        val occurredAt = attr.optLong("LastUpdated", attr.optLong("Reported", 0L))
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
+
+                        val roadway = attr.optString("RoadwayName", "Georgia Roadway")
+                        val eventType = attr.optString("EventType", "Traffic Event")
+                        val desc = attr.optString("Description", "$eventType on $roadway")
+                        val lanes = attr.optString("LanesAffected", "")
+                        val fullDesc = if (lanes.isNotBlank()) "$desc ($lanes)" else desc
+
+                        val category = when {
+                            eventType.contains("accident", ignoreCase = true) || eventType.contains("crash", ignoreCase = true) ||
+                                desc.contains("crash", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
+                            eventType.contains("fire", ignoreCase = true) || desc.contains("fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
+                            else -> IncidentCategory.ROAD_HAZARD
+                        }
+
+                        val objId = attr.optLong("ObjectId", i.toLong())
+                        val eventId = attr.optString("ID", objId.toString())
+                        incidents.add(
+                            Incident(
+                                id = "gdot511_$eventId",
+                                category = category,
+                                subcategory = eventType,
+                                title = "$roadway: $eventType",
+                                description = fullDesc,
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$roadway, Georgia",
+                                sourceId = "gdot_511_events",
+                                agency = "Georgia DOT (GDOT 511)",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "Georgia Emergency Management Open Data",
+                                isHighPriority = category == IncidentCategory.VEHICLE_CRASH
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching GDOT 511: ${e.message}")
+        }
+        incidents
+    }
+
+    // 72. Nebraska Department of Transportation (NDOT 511 Statewide Road & Incident Events - Nebraska)
+    suspend fun fetchNebraska511Incidents(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services.arcgis.com/8lRhdTsQyJpO52F1/arcgis/rest/services/CARS511_NE_Events_View/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=50"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val feat = features.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: Double.NaN
+                        val lon = geom?.optDouble("x", Double.NaN) ?: Double.NaN
+                        if (lat.isNaN() || lon.isNaN() || lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+
+                        val dist = GeoUtils.calculateDistanceMiles(userLat, userLon, lat, lon)
+                        if (dist > radiusMiles) continue
+
+                        val occurredAt = attr.optLong("EditDate", 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
+
+                        val headline = attr.optString("headline", attr.optString("phrase", "Nebraska Traffic Event"))
+                        val route = attr.optString("Route", "Nebraska Highway")
+                        val desc0 = attr.optString("Desc0", headline)
+                        val style = attr.optString("STYLE", "roadwork")
+
+                        val category = when {
+                            style.contains("accident", ignoreCase = true) || headline.contains("crash", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
+                            style.contains("fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
+                            else -> IncidentCategory.ROAD_HAZARD
+                        }
+
+                        val objId = attr.optLong("OBJECTID", i.toLong())
+                        val idVal = attr.optString("ID", objId.toString())
+                        incidents.add(
+                            Incident(
+                                id = "ne511_$idVal",
+                                category = category,
+                                subcategory = style,
+                                title = headline,
+                                description = desc0,
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$route, Nebraska",
+                                sourceId = "nebraska_511_events",
+                                agency = "Nebraska Department of Transportation (NDOT 511)",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "Nebraska Department of Transportation",
+                                isHighPriority = category == IncidentCategory.VEHICLE_CRASH
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Nebraska 511: ${e.message}")
+        }
+        incidents
+    }
+
+    // 73. Rochester Police Department Part 1 Crimes (Rochester NY RPD)
+    suspend fun fetchRochesterCrimes(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://maps.cityofrochester.gov/arcgis/rest/services/RPD/RPD_Part_I_Crime/FeatureServer/2/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=50&orderByFields=Reported_Timestamp%20DESC"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val feat = features.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: Double.NaN
+                        val lon = geom?.optDouble("x", Double.NaN) ?: Double.NaN
+                        if (lat.isNaN() || lon.isNaN() || lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+
+                        val dist = GeoUtils.calculateDistanceMiles(userLat, userLon, lat, lon)
+                        if (dist > radiusMiles) continue
+
+                        val occurredAt = attr.optLong("Reported_Timestamp", attr.optLong("OccurredFrom_Timestamp", 0L))
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
+
+                        val statute = attr.optString("Statute_Text", attr.optString("Statute_Description", "Crime Incident")).trim()
+                        val addr = attr.optString("Geocode_Address", "Rochester, NY")
+                        val caseNum = attr.optString("Case_Number", "RPD-$i")
+
+                        val isViolent = statute.contains("Homicide", ignoreCase = true) || statute.contains("Assault", ignoreCase = true) ||
+                            statute.contains("Robbery", ignoreCase = true)
+                        val category = IncidentCategory.POLICE_ACTIVITY
+
+                        incidents.add(
+                            Incident(
+                                id = "rpd_$caseNum",
+                                category = category,
+                                subcategory = statute,
+                                title = "$statute: $addr",
+                                description = "Rochester Police Department Part 1 Crime Report ($caseNum): $statute reported at $addr.",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = addr,
+                                sourceId = "rochester_ny_rpd",
+                                agency = "Rochester Police Department (RPD)",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "City of Rochester Open Data",
+                                isHighPriority = isViolent
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Rochester crimes: ${e.message}")
+        }
+        incidents
+    }
+
+    // 74. City of Lewisville Police CAD / Public Calls for Service (DFW Metroplex TX)
+    suspend fun fetchLewisvilleCad(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services2.arcgis.com/kXGqZY4GIOcEYxoF/arcgis/rest/services/Crime_Data_vw_crimes_public_cfs/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=50&orderByFields=Response_Date%20DESC"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val feat = features.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("Latitude", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("Longitude", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN() || lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+
+                        val dist = GeoUtils.calculateDistanceMiles(userLat, userLon, lat, lon)
+                        if (dist > radiusMiles) continue
+
+                        val occurredAt = attr.optLong("Response_Date", 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
+
+                        val problem = attr.optString("Problem", "Calls for Service")
+                        val addr = attr.optString("Address", "Lewisville")
+                        val city = attr.optString("City", "Lewisville")
+                        val incidentNum = attr.optString("Master_Incident_Number", "LPD-$i")
+                        val disp = attr.optString("Call_Disposition", "")
+
+                        val category = when {
+                            problem.contains("Accident", ignoreCase = true) || problem.contains("Crash", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
+                            problem.contains("Fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
+                            problem.contains("Medical", ignoreCase = true) -> IncidentCategory.MEDICAL_RESPONSE
+                            else -> IncidentCategory.POLICE_ACTIVITY
+                        }
+
+                        incidents.add(
+                            Incident(
+                                id = "lewisville_cad_$incidentNum",
+                                category = category,
+                                subcategory = problem,
+                                title = "$problem: $addr",
+                                description = "Lewisville Police CAD Call ($incidentNum): $problem at $addr ($city). Disposition: ${if (disp.isNotBlank()) disp else "Active"}.",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$addr, $city, TX",
+                                sourceId = "lewisville_tx_cad",
+                                agency = "Lewisville Police Department (CAD)",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "City of Lewisville Open Data",
+                                isHighPriority = category == IncidentCategory.VEHICLE_CRASH
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Lewisville CAD: ${e.message}")
+        }
+        incidents
+    }
+
+    // 75. Monterey County & California Highway Patrol Live Feed (CA CHP Live Stream)
+    suspend fun fetchMontereyChpIncidents(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://maps.co.monterey.ca.us/server/rest/services/Hosted/ad1886/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=50"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val feat = features.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("endlatitude", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("endlongitude", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN() || lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+
+                        val dist = GeoUtils.calculateDistanceMiles(userLat, userLon, lat, lon)
+                        if (dist > radiusMiles) continue
+
+                        val desc = attr.optString("description", "")
+                        var occurredAt = 0L
+
+                        val lastUpdatedMatch = Regex("""Last updated:\s*(\d{2}/\d{2}/\d{4}\s+\d{1,2}:\d{2}[APMapm]{2})""", RegexOption.IGNORE_CASE).find(desc)
+                        if (lastUpdatedMatch != null) {
+                            try {
+                                val sdf = SimpleDateFormat("MM/dd/yyyy hh:mma", Locale.US).apply { timeZone = TimeZone.getTimeZone("America/Los_Angeles") }
+                                occurredAt = sdf.parse(lastUpdatedMatch.groupValues[1])?.time ?: 0L
+                            } catch (_: Exception) {}
+                        }
+                        if (occurredAt == 0L) {
+                            val firstLineMatch = Regex("""([A-Za-z]{3}\s+\d{1,2}\s+\d{4}\s+\d{1,2}:\d{2}[APMapm]{2})""").find(desc)
+                            if (firstLineMatch != null) {
+                                try {
+                                    val sdf = SimpleDateFormat("MMM dd yyyy hh:mma", Locale.US).apply { timeZone = TimeZone.getTimeZone("America/Los_Angeles") }
+                                    occurredAt = sdf.parse(firstLineMatch.groupValues[1])?.time ?: 0L
+                                } catch (_: Exception) {}
+                            }
+                        }
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
+
+                        val firstLine = desc.lines().firstOrNull { it.isNotBlank() } ?: "CHP Traffic Incident"
+                        val objId = attr.optLong("objectid", i.toLong())
+                        incidents.add(
+                            Incident(
+                                id = "monterey_chp_$objId",
+                                category = IncidentCategory.VEHICLE_CRASH,
+                                subcategory = "CHP Live CAD",
+                                title = firstLine.take(60),
+                                description = desc.trim().take(300),
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = firstLine.take(50),
+                                sourceId = "monterey_chp_feed",
+                                agency = "California Highway Patrol / Monterey Co",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "California Highway Patrol (Public)",
+                                isHighPriority = true
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Monterey CHP: ${e.message}")
+        }
+        incidents
+    }
+
+    // 76. NOAA Storm Prediction Center Real-Time Severe Storm & Tornado Reports (Nationwide US)
+    suspend fun fetchNoaaStormReports(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services9.arcgis.com/RHVPKKiFTONKtxq3/arcgis/rest/services/NOAA_storm_reports_v1/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=50"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val feat = features.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("LATITUDE", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("LONGITUDE", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN() || lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+
+                        val dist = GeoUtils.calculateDistanceMiles(userLat, userLon, lat, lon)
+                        if (dist > radiusMiles) continue
+
+                        val occurredAt = attr.optLong("UTC_DATETIME", 0L)
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
+
+                        val loc = attr.optString("LOCATION", "Local Area")
+                        val county = attr.optString("COUNTY", "")
+                        val state = attr.optString("STATE", "US")
+                        val comments = attr.optString("COMMENTS", "Severe storm activity reported.")
+                        val hail = attr.optString("HAIL_SIZE", "")
+                        val subcat = if (hail.isNotBlank() && hail != "0") "Hail / Severe Storm ($hail in)" else "Severe Storm Event"
+
+                        val objId = attr.optLong("OBJECTID", i.toLong())
+                        incidents.add(
+                            Incident(
+                                id = "noaa_spc_$objId",
+                                category = IncidentCategory.WEATHER_HAZARD,
+                                subcategory = subcat,
+                                title = "$subcat: $loc, $state",
+                                description = "$comments (Reported near $loc, $county County, $state).",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = if (county.isNotBlank()) "$loc, $county Co, $state" else "$loc, $state",
+                                sourceId = "noaa_spc_reports",
+                                agency = "NOAA Storm Prediction Center",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "National Oceanic and Atmospheric Administration (Public Domain)",
+                                isHighPriority = true
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching NOAA storm reports: ${e.message}")
+        }
+        incidents
+    }
+
+    // 77. Montgomery County Pennsylvania 911 Active CAD Incidents (Montco PA CAD - Greater Philadelphia)
+    suspend fun fetchMontcoPaCadIncidents(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://gis.montcopa.org/arcgis/rest/services/Hosted/Montgomery_County_Active_CAD_Incidents_View/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=50"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val feat = features.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optString("lat").toDoubleOrNull() ?: Double.NaN
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optString("lon").toDoubleOrNull() ?: Double.NaN
+                        if (lat.isNaN() || lon.isNaN() || lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+
+                        val dist = GeoUtils.calculateDistanceMiles(userLat, userLon, lat, lon)
+                        if (dist > radiusMiles) continue
+
+                        val occurredAt = attr.optLong("dispatched_dt", attr.optLong("updated_dt", 0L))
+                        if (occurredAt <= 0L || now - occurredAt !in -3600000L..86400000L) continue
+
+                        val incType = attr.optString("incidenttype", attr.optString("type", "Active 911 CAD Call"))
+                        val loc = attr.optString("location", "Montgomery County")
+                        val mun = attr.optString("mun", "PA")
+                        val incNo = attr.optString("incidentno", "CAD-$i")
+                        val cadType = attr.optString("type", "")
+
+                        val category = when {
+                            cadType.contains("EMS", ignoreCase = true) || incType.contains("MEDICAL", ignoreCase = true) -> IncidentCategory.MEDICAL_RESPONSE
+                            cadType.contains("FIRE", ignoreCase = true) || incType.contains("FIRE", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
+                            incType.contains("ACCIDENT", ignoreCase = true) || incType.contains("CRASH", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
+                            else -> IncidentCategory.POLICE_ACTIVITY
+                        }
+
+                        incidents.add(
+                            Incident(
+                                id = "montco_cad_$incNo",
+                                category = category,
+                                subcategory = incType,
+                                title = "$incType: $loc",
+                                description = "Montgomery County 911 CAD Dispatch ($incNo): $incType dispatched at $loc ($mun, PA).",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$loc, $mun, PA",
+                                sourceId = "montco_pa_cad",
+                                agency = "Montgomery County Department of Public Safety (CAD)",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "Montgomery County PA Open Data",
+                                isHighPriority = category == IncidentCategory.VEHICLE_CRASH || category == IncidentCategory.FIRE_SMOKE
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Montco PA CAD: ${e.message}")
         }
         incidents
     }

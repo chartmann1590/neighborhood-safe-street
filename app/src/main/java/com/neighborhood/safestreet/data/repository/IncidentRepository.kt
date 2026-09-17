@@ -96,9 +96,16 @@ class IncidentRepository(
                 async(Dispatchers.IO) { openDataClient.fetchBoulderCad(userLat, userLon) },
                 async(Dispatchers.IO) { openDataClient.fetchMinneapolisCrimes(userLat, userLon) },
                 async(Dispatchers.IO) { openDataClient.fetchPrincetonCad(userLat, userLon) },
-                async(Dispatchers.IO) { openDataClient.fetchArcGisDiscovery(userLat, userLon) },
-                async(Dispatchers.IO) { openDataClient.fetchSocrataDiscovery(userLat, userLon) },
-                async(Dispatchers.IO) { openDataClient.fetchGdacsHazards() },
+                async(Dispatchers.IO) { openDataClient.fetchAlaska511Incidents(userLat, userLon) },
+                async(Dispatchers.IO) { openDataClient.fetchArizona911Incidents(userLat, userLon) },
+                async(Dispatchers.IO) { openDataClient.fetchAdotTrafficEvents(userLat, userLon) },
+                async(Dispatchers.IO) { openDataClient.fetchGeorgia511Incidents(userLat, userLon) },
+                async(Dispatchers.IO) { openDataClient.fetchNebraska511Incidents(userLat, userLon) },
+                async(Dispatchers.IO) { openDataClient.fetchRochesterCrimes(userLat, userLon) },
+                async(Dispatchers.IO) { openDataClient.fetchLewisvilleCad(userLat, userLon) },
+                async(Dispatchers.IO) { openDataClient.fetchMontereyChpIncidents(userLat, userLon) },
+                async(Dispatchers.IO) { openDataClient.fetchNoaaStormReports(userLat, userLon) },
+                async(Dispatchers.IO) { openDataClient.fetchMontcoPaCadIncidents(userLat, userLon) },
                 async(Dispatchers.IO) { communityRepository.fetchActiveCommunityReports() }
             )
 

@@ -17,6 +17,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color
 import com.neighborhood.safestreet.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -409,19 +410,54 @@ fun SourcesSheet(onDismiss: () -> Unit) {
                 license = "City of Princeton Public Safety Open Data"
             )
             SourceRow(
-                name = "GDACS Worldwide Disaster Alerts",
-                latency = "Updated every 6 minutes for global civil protection",
-                license = "United Nations & European Commission"
+                name = "Alaska DOT & Public Facilities (AK 511 Incidents)",
+                latency = "Real-time road closures, washouts, and hazards across Alaska",
+                license = "State of Alaska Open Data"
             )
             SourceRow(
-                name = "Universal Regional Socrata Discovery Network",
-                latency = "Dynamic catalog search & server-side spatial query (1,200+ portals)",
-                license = "Socrata Open Data Network (ODN)"
+                name = "Arizona 911 / AZGeo Live Public Safety Feed",
+                latency = "Live statewide 911 CAD & public safety hazards across Arizona",
+                license = "AZGeo Clearinghouse / State of Arizona"
             )
             SourceRow(
-                name = "Universal ArcGIS REST Public Safety Spatial Engine",
-                latency = "Dynamic spatial queries on public safety feature servers nationwide",
-                license = "ArcGIS Online / Esri Open Data"
+                name = "Arizona Department of Transportation (ADOT Traffic Events)",
+                latency = "Real-time highway incidents, closures & emergency operations",
+                license = "ADOT Open Data"
+            )
+            SourceRow(
+                name = "Georgia Emergency Management / GDOT 511 Statewide Events",
+                latency = "Live emergency road incidents across Georgia and Atlanta metro",
+                license = "Georgia Emergency Management Open Data"
+            )
+            SourceRow(
+                name = "Nebraska Department of Transportation (NDOT 511 Events)",
+                latency = "Real-time travel advisories, closures & incidents across Nebraska",
+                license = "Nebraska Department of Transportation"
+            )
+            SourceRow(
+                name = "Rochester Police Department (RPD Part 1 Crimes)",
+                latency = "Official crime incident reports and dispatches across Rochester, NY",
+                license = "City of Rochester Open Data"
+            )
+            SourceRow(
+                name = "Lewisville Police Department CAD (DFW Metroplex)",
+                latency = "Live 911 calls for service and police dispatches in Lewisville, TX",
+                license = "City of Lewisville Open Data"
+            )
+            SourceRow(
+                name = "Monterey County & California Highway Patrol Live Feed",
+                latency = "Real-time California Highway Patrol (CHP) incident CAD stream",
+                license = "California Highway Patrol / Monterey County GIS"
+            )
+            SourceRow(
+                name = "NOAA Storm Prediction Center Real-Time Storm Reports",
+                latency = "Live tornado, hail, and severe storm damage dispatches nationwide",
+                license = "National Oceanic and Atmospheric Administration (Public Domain)"
+            )
+            SourceRow(
+                name = "Montgomery County 911 Active CAD Incidents (Montco PA)",
+                latency = "Live police, fire, and EMS 911 dispatches across Greater Philadelphia",
+                license = "Montgomery County Department of Public Safety (PA)"
             )
             SourceRow(
                 name = "Community Safety Observations (Firestore)",

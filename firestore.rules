@@ -1,0 +1,68 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Community reports collection
+    match /communityReports/{reportId} {
+      // Anyone can read active community reports that have not expired and are not removed
+      allow read: if resource == null || (
+        resource.data.expiresAt > request.time &&
+        (!('moderationState' in resource.data) || resource.data.moderationState != 'removed')
+      );
+
+      // Authenticated users can submit a community report
+      allow create: if request.auth != null
+        && request.resource.data.category in [
+            'fire_smoke', 'medical_response', 'police_activity', 
+            'vehicle_crash', 'road_hazard', 'hazard_condition', 
+            'weather_hazard', 'other_safety'
+           ]
+        && request.resource.data.note is string
+        && request.resource.data.note.size() <= 500
+        && request.resource.data.location.lat >= -90.0 
+        && request.resource.data.location.lat <= 90.0
+        && request.resource.data.location.lon >= -180.0 
+        && request.resource.data.location.lon <= 180.0
+        && request.resource.data.verification.state == 'community_unverified'
+        && request.resource.data.source.kind == 'community'
+        && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt == request.resource.data.createdAt + duration.value(24, 'h');
+
+      // Allow owner or updates to confirmation counts
+      allow update: if request.auth != null && (
+        // Allow updating confirmation or flag counts atomically
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['communityConfirmations', 'communityFlags', 'moderationState'])
+      );
+
+      // Subcollection for confirmations: 1 per user
+      match /confirmations/{userId} {
+        allow read: if true;
+        allow write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Subcollection for moderation flags: 1 per user
+      match /flags/{userId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // Official data and source health (read-only for clients)
+    match /sources/{sourceId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /sourceHealth/{sourceId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // User preferences & alert zones
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

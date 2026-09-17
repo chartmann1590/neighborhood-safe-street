@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "751052398795",
+    "firebase_url": "https://neighborhood-safe-street-default-rtdb.firebaseio.com",
+    "project_id": "neighborhood-safe-street",
+    "storage_bucket": "neighborhood-safe-street.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:751052398795:android:3bb2cf39686be2cfb13b4e",
+        "android_client_info": {
+          "package_name": "com.neighborhood.safestreet.wear"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAiYoV9mIZN1-DOlkSMuAlO2hV3BeVQUDY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

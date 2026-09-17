@@ -1,0 +1,14 @@
+{
+  "name": "safestreet-edge-worker",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker Edge API to bypass Firebase Spark plan restrictions and stream live public safety alerts",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "wrangler": "^4.131.0"
+  }
+}

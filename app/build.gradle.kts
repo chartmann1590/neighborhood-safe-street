@@ -85,6 +85,9 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-auth-ktx")
 
+    // Free No-API-Key Map (OpenStreetMap / OSMDroid)
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
+
     // Network / Ingestion
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")

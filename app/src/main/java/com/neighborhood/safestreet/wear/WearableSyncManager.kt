@@ -66,14 +66,21 @@ class WearableSyncManager(
         }
     }
 
-    fun syncIncidentsToWatch(incidents: List<Incident>, highPriority: Incident? = null) {
+    fun syncIncidentsToWatch(
+        incidents: List<Incident>,
+        highPriority: Incident? = null,
+        userLat: Double? = null,
+        userLon: Double? = null
+    ) {
         coroutineScope.launch(Dispatchers.IO) {
             try {
                 val nodes = nodeClient.connectedNodes.await()
                 val packet = WearSyncPacket(
                     packetTimestamp = System.currentTimeMillis(),
                     activeIncidents = incidents.take(15),
-                    highPriorityAlert = highPriority
+                    highPriorityAlert = highPriority,
+                    userLatitude = userLat,
+                    userLongitude = userLon
                 )
                 val jsonString = JsonHelper.json.encodeToString(packet)
                 val data = jsonString.toByteArray(Charsets.UTF_8)
@@ -92,6 +99,24 @@ class WearableSyncManager(
             } catch (e: Exception) {
                 Log.e("WearableSync", "Error sending sync packet to watch: ${e.message}")
                 _lastSyncStatus.value = "Sync error: ${e.message?.take(30)}"
+            }
+        }
+    }
+
+    fun syncAlertToWatch(incident: Incident) {
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val nodes = nodeClient.connectedNodes.await()
+                val alertJson = JsonHelper.json.encodeToString(incident).toByteArray(Charsets.UTF_8)
+                if (nodes.isNotEmpty()) {
+                    for (node in nodes) {
+                        messageClient.sendMessage(node.id, "/alert", alertJson).await()
+                        Log.d("WearableSync", "Pushed alert to watch node ${node.displayName}")
+                    }
+                    _lastSyncStatus.value = "Pushed alert: ${incident.title.take(20)}"
+                }
+            } catch (e: Exception) {
+                Log.e("WearableSync", "Failed to push alert to watch: ${e.message}")
             }
         }
     }

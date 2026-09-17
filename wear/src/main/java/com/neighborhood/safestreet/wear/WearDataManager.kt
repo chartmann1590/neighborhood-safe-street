@@ -1,9 +1,11 @@
 package com.neighborhood.safestreet.wear
 
+import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
@@ -11,6 +13,10 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
+import androidx.core.content.ContextCompat
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import com.google.android.gms.wearable.Wearable
 import com.neighborhood.safestreet.common.models.Incident
 import com.neighborhood.safestreet.common.models.IncidentCategory
@@ -31,6 +37,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import java.util.concurrent.TimeUnit
+import kotlin.math.*
 
 enum class WearConnectionMode {
     BLUETOOTH_PHONE,
@@ -44,6 +51,8 @@ class WearDataManager(
 ) {
     private val messageClient by lazy { Wearable.getMessageClient(context) }
     private val nodeClient by lazy { Wearable.getNodeClient(context) }
+    private val fusedLocationClient by lazy { LocationServices.getFusedLocationProviderClient(context) }
+
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
@@ -61,6 +70,67 @@ class WearDataManager(
     private val _latestAlert = MutableStateFlow<String?>(null)
     val latestAlert: StateFlow<String?> = _latestAlert.asStateFlow()
 
+    private val _activeAlertIncident = MutableStateFlow<Incident?>(null)
+    val activeAlertIncident: StateFlow<Incident?> = _activeAlertIncident.asStateFlow()
+
+    // Watch Location & Phone Synced Location State
+    private val _watchLocation = MutableStateFlow<Pair<Double, Double>?>(null)
+    val watchLocation: StateFlow<Pair<Double, Double>?> = _watchLocation.asStateFlow()
+
+    private val _phoneLocation = MutableStateFlow<Pair<Double, Double>?>(null)
+    val phoneLocation: StateFlow<Pair<Double, Double>?> = _phoneLocation.asStateFlow()
+
+    private val _hasLocationPermission = MutableStateFlow(false)
+    val hasLocationPermission: StateFlow<Boolean> = _hasLocationPermission.asStateFlow()
+
+    fun getEffectiveLocation(): Pair<Double, Double> {
+        return _watchLocation.value ?: _phoneLocation.value ?: Pair(47.6062, -122.3321)
+    }
+
+    fun calculateDistanceMiles(targetLat: Double, targetLon: Double): Double {
+        val (currentLat, currentLon) = getEffectiveLocation()
+        val earthRadiusMiles = 3958.8
+        val dLat = Math.toRadians(targetLat - currentLat)
+        val dLon = Math.toRadians(targetLon - currentLon)
+        val a = sin(dLat / 2).pow(2) +
+                cos(Math.toRadians(currentLat)) * cos(Math.toRadians(targetLat)) *
+                sin(dLon / 2).pow(2)
+        val c = 2 * atan2(sqrt(a), sqrt(1 - a))
+        return earthRadiusMiles * c
+    }
+
+    fun checkAndFetchLocation() {
+        try {
+            val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            val hasPerm = fine || coarse
+            _hasLocationPermission.value = hasPerm
+
+            if (hasPerm) {
+                fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                    .addOnSuccessListener { loc ->
+                        if (loc != null) {
+                            _watchLocation.value = Pair(loc.latitude, loc.longitude)
+                            Log.d("WearDataManager", "Watch GPS fix: ${loc.latitude}, ${loc.longitude}")
+                        } else {
+                            fusedLocationClient.lastLocation.addOnSuccessListener { lastLoc ->
+                                if (lastLoc != null) {
+                                    _watchLocation.value = Pair(lastLoc.latitude, lastLoc.longitude)
+                                }
+                            }
+                        }
+                    }
+            }
+        } catch (e: Exception) {
+            Log.w("WearDataManager", "Error fetching watch location: ${e.message}")
+        }
+    }
+
+    fun dismissAlert() {
+        _activeAlertIncident.value = null
+        _latestAlert.value = null
+    }
+
     private val syncReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, intent: Intent?) {
             when (intent?.action) {
@@ -71,15 +141,30 @@ class WearDataManager(
                         _incidents.value = packet.activeIncidents
                         _connectionMode.value = WearConnectionMode.BLUETOOTH_PHONE
                         _statusMessage.value = "Phone Linked (${packet.activeIncidents.size} alerts)"
-                        packet.highPriorityAlert?.let { triggerHapticAlert(it.title) }
+                        val uLat = packet.userLatitude
+                        val uLon = packet.userLongitude
+                        if (uLat != null && uLon != null) {
+                            _phoneLocation.value = Pair(uLat, uLon)
+                        }
+                        packet.highPriorityAlert?.let {
+                            _activeAlertIncident.value = it
+                            triggerHapticAlert(it.title)
+                        }
                     } catch (e: Exception) {
                         Log.e("WearDataManager", "Error parsing Bluetooth sync packet: ${e.message}")
                     }
                 }
                 "com.neighborhood.safestreet.wear.HIGH_PRIORITY_ALERT" -> {
                     val json = intent.getStringExtra("payload") ?: return
-                    triggerHapticAlert("Critical Public Safety Alert Received")
-                    _latestAlert.value = "High Priority Alert Received"
+                    try {
+                        val incident = JsonHelper.json.decodeFromString<Incident>(json)
+                        _activeAlertIncident.value = incident
+                        _latestAlert.value = incident.title
+                        triggerHapticAlert(incident.title)
+                    } catch (e: Exception) {
+                        _latestAlert.value = "Critical Alert"
+                        triggerHapticAlert("Critical Public Safety Alert Received")
+                    }
                 }
             }
         }
@@ -100,6 +185,7 @@ class WearDataManager(
     }
 
     fun refreshData() {
+        checkAndFetchLocation()
         coroutineScope.launch {
             // First check if phone Bluetooth node is connected
             try {
@@ -121,9 +207,6 @@ class WearDataManager(
             } else {
                 _connectionMode.value = WearConnectionMode.SEARCHING
                 _statusMessage.value = "Standby (Awaiting Sync)"
-                if (_incidents.value.isEmpty()) {
-                    _incidents.value = getFallbackWearIncidents()
-                }
             }
         }
     }
@@ -172,19 +255,22 @@ class WearDataManager(
         if (list.isNotEmpty()) {
             _incidents.value = list
             _statusMessage.value = "Internet Fallback: ${list.size} alerts"
-        } else if (_incidents.value.isEmpty()) {
-            _incidents.value = getFallbackWearIncidents()
+        } else {
+            _incidents.value = emptyList()
+            _statusMessage.value = "No live incidents on feed"
         }
     }
 
     fun quickReportFromWrist(category: IncidentCategory) {
         coroutineScope.launch(Dispatchers.IO) {
+            val loc = getEffectiveLocation()
+            val coordStr = String.format(java.util.Locale.US, "%.4f, %.4f", loc.first, loc.second)
             val report = WearQuickReport(
                 category = category,
-                latitude = 47.6062,
-                longitude = -122.3321,
+                latitude = loc.first,
+                longitude = loc.second,
                 timestampEpochMs = System.currentTimeMillis(),
-                note = "Quick observation logged directly from Wear OS wrist interface."
+                note = "Quick observation logged directly from Wear OS wrist interface at [$coordStr]."
             )
 
             // Try sending to phone via Bluetooth Data Layer
@@ -209,14 +295,14 @@ class WearDataManager(
                 id = "wear_rep_${System.currentTimeMillis()}",
                 category = category,
                 title = "${category.displayName} (Wrist Report)",
-                description = "Observed from smartwatch. Expires in 24 hours.",
+                description = "Observed from smartwatch at [$coordStr]. Expires in 24 hours.",
                 occurredAtEpochMs = now,
                 sourceUpdatedAtEpochMs = now,
                 receivedAtEpochMs = now,
                 expiresAtEpochMs = now + (24 * 3600 * 1000L),
-                latitude = 47.6062,
-                longitude = -122.3321,
-                displayAddress = "Current Location",
+                latitude = loc.first,
+                longitude = loc.second,
+                displayAddress = "Location [$coordStr]",
                 sourceId = "wear_quick_report",
                 agency = "Wear OS Contributor",
                 provenance = ProvenanceType.COMMUNITY_UNVERIFIED
@@ -254,44 +340,6 @@ class WearDataManager(
         } catch (e: Exception) {
             // ignore haptic error
         }
-    }
-
-    private fun getFallbackWearIncidents(): List<Incident> {
-        val now = System.currentTimeMillis()
-        return listOf(
-            Incident(
-                id = "wear_seed_1",
-                category = IncidentCategory.FIRE_SMOKE,
-                title = "Structure Fire",
-                description = "Active fire response nearby.",
-                occurredAtEpochMs = now - (5 * 60 * 1000L),
-                sourceUpdatedAtEpochMs = now - (5 * 60 * 1000L),
-                receivedAtEpochMs = now,
-                latitude = 47.6062,
-                longitude = -122.3321,
-                displayAddress = "4th Ave & Pine St",
-                sourceId = "seed",
-                agency = "Fire Dept",
-                provenance = ProvenanceType.OFFICIAL_LIVE,
-                isHighPriority = true
-            ),
-            Incident(
-                id = "wear_seed_2",
-                category = IncidentCategory.VEHICLE_CRASH,
-                title = "Vehicle Collision",
-                description = "Traffic incident blocking lane.",
-                occurredAtEpochMs = now - (18 * 60 * 1000L),
-                sourceUpdatedAtEpochMs = now - (18 * 60 * 1000L),
-                receivedAtEpochMs = now,
-                latitude = 47.6100,
-                longitude = -122.3400,
-                displayAddress = "Market & 5th St",
-                sourceId = "seed",
-                agency = "Police Dispatch",
-                provenance = ProvenanceType.OFFICIAL_LIVE,
-                isHighPriority = false
-            )
-        )
     }
 
     fun cleanup() {

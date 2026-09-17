@@ -6,6 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.neighborhood.safestreet.common.models.Incident
 import com.neighborhood.safestreet.common.models.IncidentCategory
 import com.neighborhood.safestreet.common.models.ProvenanceType
+import com.neighborhood.safestreet.data.alerts.AlertPreferences
+import com.neighborhood.safestreet.data.alerts.AlertPreferencesRepository
+import com.neighborhood.safestreet.data.alerts.SafetyAlertManager
 import com.neighborhood.safestreet.data.repository.IncidentRepository
 import com.neighborhood.safestreet.wear.WearableSyncManager
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,6 +27,8 @@ enum class AuthorityFilter(val label: String) {
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = IncidentRepository()
+    val alertPreferencesRepo = AlertPreferencesRepository(application.applicationContext)
+
     val wearSyncManager = WearableSyncManager(
         context = application.applicationContext,
         coroutineScope = viewModelScope,
@@ -39,10 +44,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     )
 
+    val safetyAlertManager = SafetyAlertManager(
+        context = application.applicationContext,
+        preferencesRepository = alertPreferencesRepo,
+        wearableSyncManager = wearSyncManager,
+        coroutineScope = viewModelScope
+    )
+
     val isLoading = repository.isLoading
     val isWearConnected = wearSyncManager.isWearConnected
     val connectedNodeName = wearSyncManager.connectedNodeName
     val lastSyncStatus = wearSyncManager.lastSyncStatus
+    val alertPreferences = alertPreferencesRepo.preferences
+    val activeInAppAlert = safetyAlertManager.activeInAppAlert
+
+    // User Location (defaults to Seattle center until GPS coordinates resolve)
+    private val _isLocationPermissionGranted = MutableStateFlow(false)
+    val isLocationPermissionGranted: StateFlow<Boolean> = _isLocationPermissionGranted.asStateFlow()
+
+    private val _userLatitude = MutableStateFlow(47.6062)
+    val userLatitude: StateFlow<Double> = _userLatitude.asStateFlow()
+
+    private val _userLongitude = MutableStateFlow(-122.3321)
+    val userLongitude: StateFlow<Double> = _userLongitude.asStateFlow()
 
     private val _selectedCategory = MutableStateFlow<IncidentCategory?>(null)
     val selectedCategory: StateFlow<IncidentCategory?> = _selectedCategory.asStateFlow()
@@ -50,8 +74,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedAuthority = MutableStateFlow(AuthorityFilter.ALL)
     val selectedAuthority: StateFlow<AuthorityFilter> = _selectedAuthority.asStateFlow()
 
-    private val _isRadarView = MutableStateFlow(false)
+    private val _isRadarView = MutableStateFlow(true)
     val isRadarView: StateFlow<Boolean> = _isRadarView.asStateFlow()
+
+    private val _showFullscreenMap = MutableStateFlow(false)
+    val showFullscreenMap: StateFlow<Boolean> = _showFullscreenMap.asStateFlow()
+
+    private val _focusedIncidentForMap = MutableStateFlow<Incident?>(null)
+    val focusedIncidentForMap: StateFlow<Incident?> = _focusedIncidentForMap.asStateFlow()
+
+    private val _showAlertSettings = MutableStateFlow(false)
+    val showAlertSettings: StateFlow<Boolean> = _showAlertSettings.asStateFlow()
 
     private val _showReportDialog = MutableStateFlow(false)
     val showReportDialog: StateFlow<Boolean> = _showReportDialog.asStateFlow()
@@ -85,8 +118,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun refresh() {
         viewModelScope.launch {
             repository.refresh()
-            // Auto-sync top incidents to watch whenever data refreshes
+            val list = repository.incidents.value
+            // Check incidents against alert preferences
+            safetyAlertManager.evaluateIncidents(list, _userLatitude.value, _userLongitude.value)
+            // Auto-sync top incidents to watch
             syncToWear()
+        }
+    }
+
+    fun updateUserLocation(lat: Double, lon: Double) {
+        _userLatitude.value = lat
+        _userLongitude.value = lon
+        safetyAlertManager.evaluateIncidents(repository.incidents.value, lat, lon)
+        syncToWear()
+    }
+
+    fun openFullscreenMap(focusedIncident: Incident? = null) {
+        _focusedIncidentForMap.value = focusedIncident
+        _showFullscreenMap.value = true
+    }
+
+    fun closeFullscreenMap() {
+        _showFullscreenMap.value = false
+        _focusedIncidentForMap.value = null
+    }
+
+    fun setShowAlertSettings(show: Boolean) {
+        _showAlertSettings.value = show
+    }
+
+    fun dismissInAppAlert() {
+        safetyAlertManager.dismissInAppAlert()
+    }
+
+    fun sendTestSafetyAlert() {
+        val realIncident = repository.incidents.value.firstOrNull()
+        if (realIncident != null) {
+            safetyAlertManager.triggerAlertOnRealIncident(listOf(realIncident), _userLatitude.value, _userLongitude.value)
+            syncToWear(highPriority = realIncident)
         }
     }
 
@@ -137,9 +206,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setLocationPermissionGranted(granted: Boolean) {
+        _isLocationPermissionGranted.value = granted
+    }
+
     fun syncToWear(highPriority: Incident? = null) {
         val current = repository.incidents.value
-        wearSyncManager.syncIncidentsToWatch(current, highPriority)
+        wearSyncManager.syncIncidentsToWatch(
+            incidents = current,
+            highPriority = highPriority,
+            userLat = _userLatitude.value,
+            userLon = _userLongitude.value
+        )
     }
 
     fun sendTestAlertToWear() {

@@ -28,18 +28,43 @@ import com.neighborhood.safestreet.ui.viewmodel.MainViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(viewModel: MainViewModel) {
+fun MainScreen(
+    viewModel: MainViewModel,
+    onRequestLocationPermission: () -> Unit = {}
+) {
     val incidents by viewModel.filteredIncidents.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val isLocationPermissionGranted by viewModel.isLocationPermissionGranted.collectAsStateWithLifecycle()
     val isWearConnected by viewModel.isWearConnected.collectAsStateWithLifecycle()
     val connectedNodeName by viewModel.connectedNodeName.collectAsStateWithLifecycle()
     val lastSyncStatus by viewModel.lastSyncStatus.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val selectedAuthority by viewModel.selectedAuthority.collectAsStateWithLifecycle()
     val isRadarView by viewModel.isRadarView.collectAsStateWithLifecycle()
+    val showFullscreenMap by viewModel.showFullscreenMap.collectAsStateWithLifecycle()
+    val focusedIncidentForMap by viewModel.focusedIncidentForMap.collectAsStateWithLifecycle()
+    val showAlertSettings by viewModel.showAlertSettings.collectAsStateWithLifecycle()
+    val alertPreferences by viewModel.alertPreferences.collectAsStateWithLifecycle()
+    val activeInAppAlert by viewModel.activeInAppAlert.collectAsStateWithLifecycle()
+    val userLat by viewModel.userLatitude.collectAsStateWithLifecycle()
+    val userLon by viewModel.userLongitude.collectAsStateWithLifecycle()
     val showReportDialog by viewModel.showReportDialog.collectAsStateWithLifecycle()
     val showWearDialog by viewModel.showWearDialog.collectAsStateWithLifecycle()
     val showSourcesDialog by viewModel.showSourcesDialog.collectAsStateWithLifecycle()
+
+    // If user opened the fullscreen map, render the interactive OSM map screen
+    if (showFullscreenMap) {
+        FullscreenMapScreen(
+            incidents = incidents,
+            userLatitude = userLat,
+            userLongitude = userLon,
+            initialFocusedIncident = focusedIncidentForMap,
+            onBack = { viewModel.closeFullscreenMap() },
+            onConfirmIncident = { viewModel.confirmIncident(it) },
+            onFlagIncident = { id, r -> viewModel.flagIncident(id, r) }
+        )
+        return
+    }
 
     Scaffold(
         containerColor = DarkBackground,
@@ -78,6 +103,26 @@ fun MainScreen(viewModel: MainViewModel) {
                     }
                 },
                 actions = {
+                    // Alert Settings Button with Active Ring / Bell
+                    IconButton(onClick = { viewModel.setShowAlertSettings(true) }) {
+                        BadgedBox(
+                            badge = {
+                                if (alertPreferences.enabled) {
+                                    Badge(
+                                        containerColor = AccentCyan,
+                                        modifier = Modifier.size(6.dp)
+                                    )
+                                }
+                            }
+                        ) {
+                            Icon(
+                                Icons.Default.Notifications,
+                                contentDescription = "Alert Preferences",
+                                tint = if (alertPreferences.enabled) AccentCyan else TextMuted
+                            )
+                        }
+                    }
+
                     // Wear OS Connection Indicator Pill
                     Row(
                         modifier = Modifier
@@ -147,6 +192,57 @@ fun MainScreen(viewModel: MainViewModel) {
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            // Real-time In-App Alert Banner (pops down on nearby urgent alerts)
+            InAppAlertBanner(
+                incident = activeInAppAlert,
+                onDismiss = { viewModel.dismissInAppAlert() },
+                onViewOnMap = { incident -> viewModel.openFullscreenMap(incident) }
+            )
+
+            // Location Access Status Banner (if GPS is disabled or permissions not yet granted)
+            if (!isLocationPermissionGranted) {
+                Surface(
+                    color = Color(0xFF2A1C0A),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 4.dp)
+                        .clickable { onRequestLocationPermission() },
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.LocationOff,
+                            contentDescription = null,
+                            tint = AlertAmber,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Location Access Needed",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Enable GPS for proximity radar and nearby safety alerts",
+                                color = TextSecondary,
+                                fontSize = 10.sp
+                            )
+                        }
+                        TextButton(
+                            onClick = onRequestLocationPermission,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        ) {
+                            Text("ENABLE", color = AlertAmber, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+
             // Authority Filter Chips (Official vs Community)
             Row(
                 modifier = Modifier
@@ -207,7 +303,7 @@ fun MainScreen(viewModel: MainViewModel) {
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             // Main Content Area
             if (isLoading && incidents.isEmpty()) {
@@ -220,12 +316,18 @@ fun MainScreen(viewModel: MainViewModel) {
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 88.dp),
+                    contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 88.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     if (isRadarView) {
                         item {
-                            RadarView(incidents = incidents)
+                            // Radar with real OSM Map tiles behind it and tap-to-fullscreen
+                            RadarView(
+                                incidents = incidents,
+                                userLatitude = userLat,
+                                userLongitude = userLon,
+                                onExpandMap = { viewModel.openFullscreenMap() }
+                            )
                             Spacer(modifier = Modifier.height(6.dp))
                         }
                     }
@@ -259,7 +361,20 @@ fun MainScreen(viewModel: MainViewModel) {
         }
     }
 
-    // Dialogs
+    // Dialogs & Sheets
+    if (showAlertSettings) {
+        AlertSettingsSheet(
+            preferences = alertPreferences,
+            onToggleCategory = { viewModel.alertPreferencesRepo.toggleCategory(it) },
+            onSetRadius = { viewModel.alertPreferencesRepo.setRadius(it) },
+            onSetEnabled = { viewModel.alertPreferencesRepo.setEnabled(it) },
+            onSetPushToWatch = { viewModel.alertPreferencesRepo.setPushToWatch(it) },
+            onSetSoundVibration = { viewModel.alertPreferencesRepo.setSoundVibration(it) },
+            onSendTestAlert = { viewModel.sendTestSafetyAlert() },
+            onDismiss = { viewModel.setShowAlertSettings(false) }
+        )
+    }
+
     if (showReportDialog) {
         ReportBottomSheet(
             onDismiss = { viewModel.setShowReportDialog(false) },

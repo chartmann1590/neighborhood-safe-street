@@ -74,6 +74,7 @@ dependencies {
 
     // Wearable Data Layer API for Bluetooth communication with phone
     implementation("com.google.android.gms:play-services-wearable:18.2.0")
+    implementation("com.google.android.gms:play-services-location:21.3.0")
 
     // Direct HTTP networking for Standalone Internet Fallback
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

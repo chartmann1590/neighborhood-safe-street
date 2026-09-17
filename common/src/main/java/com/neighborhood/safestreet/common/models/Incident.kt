@@ -67,5 +67,7 @@ data class WearQuickReport(
 data class WearSyncPacket(
     val packetTimestamp: Long,
     val activeIncidents: List<Incident>,
-    val highPriorityAlert: Incident? = null
+    val highPriorityAlert: Incident? = null,
+    val userLatitude: Double? = null,
+    val userLongitude: Double? = null
 )

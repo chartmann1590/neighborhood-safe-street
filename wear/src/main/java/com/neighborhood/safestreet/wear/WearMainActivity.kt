@@ -1,10 +1,14 @@
 package com.neighborhood.safestreet.wear
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -18,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.wear.compose.material.*
 import com.neighborhood.safestreet.common.models.Incident
@@ -27,14 +32,24 @@ import com.neighborhood.safestreet.common.models.ProvenanceType
 class WearMainActivity : ComponentActivity() {
     private lateinit var dataManager: WearDataManager
 
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        dataManager.checkAndFetchLocation()
+        dataManager.refreshData()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         dataManager = WearDataManager(applicationContext, lifecycleScope)
+
+        requestWearPermissions()
 
         setContent {
             MaterialTheme {
                 WearApp(
                     dataManager = dataManager,
+                    onRequestPermissions = { requestWearPermissions() },
                     onCallEmergency = {
                         try {
                             val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:911"))
@@ -48,8 +63,20 @@ class WearMainActivity : ComponentActivity() {
         }
     }
 
+    private fun requestWearPermissions() {
+        val permissions = mutableListOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        permissionLauncher.launch(permissions.toTypedArray())
+    }
+
     override fun onResume() {
         super.onResume()
+        dataManager.checkAndFetchLocation()
         dataManager.refreshData()
     }
 
@@ -62,11 +89,16 @@ class WearMainActivity : ComponentActivity() {
 @Composable
 fun WearApp(
     dataManager: WearDataManager,
+    onRequestPermissions: () -> Unit = {},
     onCallEmergency: () -> Unit
 ) {
     val incidents by dataManager.incidents.collectAsState()
     val mode by dataManager.connectionMode.collectAsState()
     val statusMsg by dataManager.statusMessage.collectAsState()
+    val activeAlert by dataManager.activeAlertIncident.collectAsState()
+    val hasLocationPermission by dataManager.hasLocationPermission.collectAsState()
+    val watchLocation by dataManager.watchLocation.collectAsState()
+    val phoneLocation by dataManager.phoneLocation.collectAsState()
     val listState = rememberScalingLazyListState()
 
     Scaffold(
@@ -109,6 +141,82 @@ fun WearApp(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(text = modeLabel, color = Color.Gray, fontSize = 10.sp)
+                    }
+
+                    // Location coordinate indicator
+                    val activeCoord = watchLocation ?: phoneLocation
+                    if (activeCoord != null) {
+                        val providerLabel = if (watchLocation != null) "Watch GPS" else "Phone GPS"
+                        Text(
+                            text = "📍 $providerLabel [${String.format(java.util.Locale.US, "%.3f", activeCoord.first)}, ${String.format(java.util.Locale.US, "%.3f", activeCoord.second)}]",
+                            color = Color(0xFF80D8FF),
+                            fontSize = 8.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(top = 1.dp)
+                        )
+                    }
+                }
+            }
+
+            // Location Access Permission chip if GPS permission is not granted on watch
+            if (!hasLocationPermission) {
+                item {
+                    CompactChip(
+                        onClick = onRequestPermissions,
+                        label = { Text("📍 Grant Watch GPS", fontSize = 9.sp, fontWeight = FontWeight.Bold) },
+                        colors = ChipDefaults.chipColors(backgroundColor = Color(0xFF451A03)),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
+            // CRITICAL WRIST ALERT BANNER (If high-priority alert received from phone or network)
+            if (activeAlert != null) {
+                val alert = activeAlert!!
+                item {
+                    Card(
+                        onClick = { dataManager.dismissAlert() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp)),
+                        backgroundPainter = CardDefaults.cardBackgroundPainter(
+                            startBackgroundColor = Color(0xFF5C0A0A),
+                            endBackgroundColor = Color(0xFF2E0505)
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "🚨 CRITICAL ALERT",
+                                    color = Color(0xFFFF1744),
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                Text(
+                                    text = "DISMISS ✕",
+                                    color = Color.LightGray,
+                                    fontSize = 7.sp
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = alert.title,
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 2
+                            )
+                            Text(
+                                text = alert.displayAddress,
+                                color = Color(0xFFFFD54F),
+                                fontSize = 8.sp,
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
             }
@@ -181,7 +289,8 @@ fun WearApp(
 
             // Incident cards for Wear OS
             items(incidents) { incident ->
-                WearIncidentCard(incident = incident)
+                val dist = dataManager.calculateDistanceMiles(incident.latitude, incident.longitude)
+                WearIncidentCard(incident = incident, distanceMiles = dist)
             }
 
             // Refresh & fallback fetch trigger
@@ -200,7 +309,7 @@ fun WearApp(
 }
 
 @Composable
-fun WearIncidentCard(incident: Incident) {
+fun WearIncidentCard(incident: Incident, distanceMiles: Double? = null) {
     val borderColor = when (incident.category) {
         IncidentCategory.FIRE_SMOKE -> Color(0xFFFF3D00)
         IncidentCategory.POLICE_ACTIVITY -> Color(0xFF2979FF)
@@ -238,11 +347,23 @@ fun WearIncidentCard(incident: Incident) {
                     fontSize = 8.sp,
                     fontWeight = FontWeight.Bold
                 )
-                Text(
-                    text = formatWearTime(incident.occurredAtEpochMs),
-                    color = Color.Gray,
-                    fontSize = 8.sp
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (distanceMiles != null) {
+                        val distFormatted = if (distanceMiles < 0.1) "<0.1mi" else if (distanceMiles < 10) String.format(java.util.Locale.US, "%.1fmi", distanceMiles) else String.format(java.util.Locale.US, "%.0fmi", distanceMiles)
+                        Text(
+                            text = distFormatted,
+                            color = Color(0xFF00E5FF),
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+                    Text(
+                        text = formatWearTime(incident.occurredAtEpochMs),
+                        color = Color.Gray,
+                        fontSize = 8.sp
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(2.dp))

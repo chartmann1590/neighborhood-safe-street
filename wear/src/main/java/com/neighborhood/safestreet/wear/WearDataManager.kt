@@ -342,6 +342,95 @@ class WearDataManager(
             Log.w("WearDataManager", "Direct regional fetch error: ${e.message}")
         }
 
+        try {
+            // 3. USGS Real-Time Earthquakes (Nationwide)
+            val usgsUrl = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson"
+            val reqUsgs = Request.Builder().url(usgsUrl).header("User-Agent", "SafeStreetWear/2.0").build()
+            okHttpClient.newCall(reqUsgs).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val feats = root.optJSONArray("features") ?: return@use
+                    for (i in 0 until minOf(feats.length(), 20)) {
+                        val f = feats.getJSONObject(i)
+                        val props = f.optJSONObject("properties") ?: continue
+                        val coords = f.optJSONObject("geometry")?.optJSONArray("coordinates") ?: continue
+                        val lon = coords.optDouble(0, Double.NaN)
+                        val lat = coords.optDouble(1, Double.NaN)
+                        if (lat.isNaN() || lon.isNaN()) continue
+                        val mag = props.optDouble("mag", 0.0)
+                        val place = props.optString("place", "Seismic Event")
+                        val time = props.optLong("time", now)
+                        list.add(
+                            Incident(
+                                id = "wear_usgs_${f.optString("id", i.toString())}",
+                                category = IncidentCategory.WEATHER_HAZARD,
+                                subcategory = "Earthquake",
+                                title = "M $mag Earthquake - $place",
+                                description = "USGS recorded M $mag earthquake at $place.",
+                                occurredAtEpochMs = time,
+                                sourceUpdatedAtEpochMs = time,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = place,
+                                sourceId = "wear_usgs",
+                                agency = "USGS",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                isHighPriority = mag >= 4.0
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        try {
+            // 4. NIFC Wildfire Dispatches (Nationwide)
+            val nifcUrl = "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Incident_Locations_Current/FeatureServer/0/query?where=1%3D1&geometry=$currentLon,$currentLat&geometryType=esriGeometryPoint&inSR=4326&distance=50&units=esriSRUnit_StatuteMile&spatialRel=esriSpatialRelIntersects&orderByFields=FireDiscoveryDateTime%20DESC&outFields=*&f=json&resultRecordCount=20"
+            val reqNifc = Request.Builder().url(nifcUrl).header("User-Agent", "SafeStreetWear/2.0").build()
+            okHttpClient.newCall(reqNifc).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val feats = root.optJSONArray("features") ?: return@use
+                    for (i in 0 until feats.length()) {
+                        val feat = feats.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = attr.optDouble("InitialLatitude", Double.NaN).takeIf { !it.isNaN() }
+                            ?: geom?.optDouble("y", Double.NaN) ?: Double.NaN
+                        val lon = attr.optDouble("InitialLongitude", Double.NaN).takeIf { !it.isNaN() }
+                            ?: geom?.optDouble("x", Double.NaN) ?: Double.NaN
+                        if (lat.isNaN() || lon.isNaN() || lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) continue
+                        val name = attr.optString("IncidentName", "Active Wildfire")
+                        val county = attr.optString("POOCounty", "")
+                        val state = attr.optString("POOState", "").removePrefix("US-")
+                        val disc = attr.optLong("FireDiscoveryDateTime", now)
+                        list.add(
+                            Incident(
+                                id = "wear_nifc_${attr.optLong("OBJECTID", i.toLong())}",
+                                category = IncidentCategory.FIRE_SMOKE,
+                                subcategory = "Wildfire",
+                                title = "Wildfire: $name",
+                                description = "Active wildfire dispatch in $county County, $state.",
+                                occurredAtEpochMs = disc,
+                                sourceUpdatedAtEpochMs = disc,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = if (county.isNotBlank()) "$county, $state" else state,
+                                sourceId = "wear_nifc",
+                                agency = "NIFC",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                isHighPriority = true
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
         // Filter strictly by watch radius
         val withinRadius = list.filter { calculateDistanceMiles(it.latitude, it.longitude) <= _radiusMiles.value }
         _incidents.value = withinRadius

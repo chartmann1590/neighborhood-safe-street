@@ -90,13 +90,38 @@ fun SourcesSheet(onDismiss: () -> Unit) {
 
             SourceRow(
                 name = "NOAA National Weather Service Alerts (Nationwide)",
-                latency = "Live emergency point & polygon feed",
+                latency = "Live emergency point & polygon feed (all 50 states & 3,143 counties)",
                 license = "National Oceanic and Atmospheric Administration (Public Domain)"
             )
             SourceRow(
+                name = "USGS Real-Time Earthquakes & Seismic Shaking",
+                latency = "Live real-time seismic sensors across all US territories",
+                license = "US Geological Survey (USGS Public Domain Data)"
+            )
+            SourceRow(
+                name = "NIFC US Wildfire & Fire Dispatches (All 50 States)",
+                latency = "Live active wildland fire dispatches & incident perimeters",
+                license = "National Interagency Fire Center / USFS / BLM (ArcGIS REST)"
+            )
+            SourceRow(
                 name = "New York State 511 & Public Safety Events",
-                latency = "Real-time / spatial query (Schenectady, Albany, NY)",
+                latency = "Real-time spatial queries (Schenectady, Albany, NY & statewide)",
                 license = "New York State Open Data & NYSDOT"
+            )
+            SourceRow(
+                name = "New York City Police Department (NYPD) Arrests",
+                latency = "Updated daily by NYC OpenData (5 boroughs)",
+                license = "City of New York Open Data"
+            )
+            SourceRow(
+                name = "New York City Police Department (NYPD) Crime Complaints",
+                latency = "Citywide 5-borough complaint records",
+                license = "City of New York Open Data"
+            )
+            SourceRow(
+                name = "New York City Motor Vehicle Collisions / Crashes",
+                latency = "Citywide traffic collisions with injuries & fatalities",
+                license = "NYC OpenData / NYPD Highway Patrol"
             )
             SourceRow(
                 name = "Chicago Police Department (CPD) Incident Reports",
@@ -104,84 +129,129 @@ fun SourcesSheet(onDismiss: () -> Unit) {
                 license = "City of Chicago Open Data"
             )
             SourceRow(
-                name = "New York City Police Department (NYPD) Arrests",
-                latency = "Updated regularly by NYC OpenData",
-                license = "City of New York Open Data"
+                name = "Chicago Traffic Crashes & Incidents",
+                latency = "Real-time CPD crash reports & severe injury dispatches",
+                license = "City of Chicago Open Data"
             )
             SourceRow(
                 name = "Los Angeles Police Department (LAPD) Incidents",
-                latency = "Rolling daily updates by data.lacity.org",
+                latency = "Rolling daily updates across all LAPD divisions",
                 license = "City of Los Angeles Open Data"
             )
             SourceRow(
-                name = "Dallas Police Department (DPD) Active Dispatched Calls",
-                latency = "Real-time CAD dispatch records",
-                license = "City of Dallas Open Data"
+                name = "Los Angeles County Sheriff's Department (LASD) Crimes",
+                latency = "ArcGIS REST live query for Part 1 & 2 crime incidents",
+                license = "County of Los Angeles Open Data"
             )
             SourceRow(
-                name = "Montgomery County Police Department (MCPD)",
-                latency = "Real-time / daily dispatched calls",
-                license = "Montgomery County, MD Open Data"
-            )
-            SourceRow(
-                name = "Buffalo Police Department (BPD) Crime Reports",
-                latency = "Regular municipal updates",
-                license = "City of Buffalo Open Data"
-            )
-            SourceRow(
-                name = "Cincinnati Police Department (CPD) Calls for Service",
-                latency = "Real-time service calls",
-                license = "City of Cincinnati Open Data"
-            )
-            SourceRow(
-                name = "Seattle Fire Department 911 Calls (SFD CAD)",
-                latency = "Refreshed every 5 minutes",
-                license = "City of Seattle Open Data (Public Domain)"
-            )
-            SourceRow(
-                name = "San Francisco Police Dispatch (SFPD)",
-                latency = "Rolling 48h window, updated every 10 min",
+                name = "San Francisco Police Department (SFPD) Calls for Service",
+                latency = "Rolling 48h CAD window, refreshed every 10 min",
                 license = "City and County of San Francisco Open Data"
             )
             SourceRow(
-                name = "USGS Real-Time Earthquakes & Geo-Hazards",
-                latency = "Real-time seismic feeds",
-                license = "US Geological Survey (USGS Public Domain)"
+                name = "San Francisco Fire Department (SFFD) Incidents",
+                latency = "Fire, medical, and rescue 911 responses",
+                license = "City and County of San Francisco Open Data"
             )
             SourceRow(
-                name = "GDACS Worldwide Disaster Alerts",
-                latency = "Updated every 6 minutes",
-                license = "United Nations & European Commission"
+                name = "Seattle Fire Department 911 Calls (SFD CAD)",
+                latency = "Refreshed every 5 minutes from live dispatch system",
+                license = "City of Seattle Open Data (Public Domain)"
+            )
+            SourceRow(
+                name = "Seattle Police Department (SPD) Crime Incident Reports",
+                latency = "Regular daily municipal updates",
+                license = "City of Seattle Open Data"
+            )
+            SourceRow(
+                name = "Dallas Police Department (DPD) Active Dispatched Calls",
+                latency = "Real-time CAD RMS incident records",
+                license = "City of Dallas Open Data"
             )
             SourceRow(
                 name = "Austin Police Department (APD) Crime Reports",
-                latency = "Daily municipal updates",
+                latency = "Daily municipal updates across Austin metro",
                 license = "City of Austin Open Data"
             )
             SourceRow(
+                name = "Austin Fire Department (AFD) Real-Time Incidents",
+                latency = "Active emergency fire and rollover CAD dispatches",
+                license = "City of Austin Open Data"
+            )
+            SourceRow(
+                name = "Austin Real-Time Traffic Incident Reports",
+                latency = "Live crash and road blockage alerts from Austin Transportation",
+                license = "City of Austin Open Data"
+            )
+            SourceRow(
+                name = "New Orleans Police Department (NOPD) Calls for Service",
+                latency = "Live CAD dispatches updated continuously",
+                license = "City of New Orleans Open Data"
+            )
+            SourceRow(
+                name = "Baton Rouge Police & Sheriff Crime Incidents",
+                latency = "Daily municipal & parish law enforcement records",
+                license = "City of Baton Rouge & East Baton Rouge Parish Open Data"
+            )
+            SourceRow(
                 name = "Philadelphia Police Department (PPD) Crime Incidents",
-                latency = "Real-time municipal dispatch records",
+                latency = "Real-time municipal dispatch records via Carto SQL",
                 license = "OpenDataPhilly / Carto"
             )
             SourceRow(
-                name = "New York City Police Department (NYPD) Crime Complaints",
-                latency = "Citywide 5-borough complaint records",
-                license = "NYC OpenData"
-            )
-            SourceRow(
                 name = "Washington DC Metropolitan Police Department (MPD)",
-                latency = "Real-time ArcGIS REST feature service",
+                latency = "Real-time ArcGIS REST feature service dispatches",
                 license = "Open Data DC"
             )
             SourceRow(
                 name = "Kansas City Police Department (KCPD) Incidents",
-                latency = "Regular municipal updates",
+                latency = "Regular municipal crime reports",
                 license = "Open Data KC"
             )
             SourceRow(
-                name = "Dynamic Socrata Open Data Discovery Network",
-                latency = "Automatic regional discovery & spatial querying across US municipal portals",
+                name = "Montgomery County Police Department (MCPD CAD)",
+                latency = "Real-time / daily dispatched calls across MD/DC suburbs",
+                license = "Montgomery County, MD Open Data"
+            )
+            SourceRow(
+                name = "Montgomery County Crash Reporting",
+                latency = "Crash reports with severity ratings across Montgomery County",
+                license = "Montgomery County, MD Open Data"
+            )
+            SourceRow(
+                name = "Prince George's County Police Department Incidents",
+                latency = "Countywide crime & accident dispatch records",
+                license = "Prince George's County, MD Open Data"
+            )
+            SourceRow(
+                name = "Cincinnati Police & Fire Department (CPD & CFD CAD)",
+                latency = "Real-time police, fire, and emergency medical calls",
+                license = "City of Cincinnati Open Data"
+            )
+            SourceRow(
+                name = "Gainesville Police Department Crime Responses",
+                latency = "Regular municipal law enforcement updates",
+                license = "City of Gainesville, FL Open Data"
+            )
+            SourceRow(
+                name = "Buffalo Police Department (BPD) Crime Reports",
+                latency = "Regular municipal updates for Western NY",
+                license = "City of Buffalo Open Data"
+            )
+            SourceRow(
+                name = "GDACS Worldwide Disaster Alerts",
+                latency = "Updated every 6 minutes for global civil protection",
+                license = "United Nations & European Commission"
+            )
+            SourceRow(
+                name = "Universal Regional Socrata Discovery Network",
+                latency = "Dynamic catalog search & server-side spatial query (1,200+ portals)",
                 license = "Socrata Open Data Network (ODN)"
+            )
+            SourceRow(
+                name = "Universal ArcGIS REST Public Safety Spatial Engine",
+                latency = "Dynamic spatial queries on public safety feature servers nationwide",
+                license = "ArcGIS Online / Esri Open Data"
             )
             SourceRow(
                 name = "Community Safety Observations (Firestore)",

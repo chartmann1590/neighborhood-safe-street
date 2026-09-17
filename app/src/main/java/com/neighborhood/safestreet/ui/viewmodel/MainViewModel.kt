@@ -64,14 +64,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val alertPreferences = alertPreferencesRepo.preferences
     val activeInAppAlert = safetyAlertManager.activeInAppAlert
 
-    // User Location (defaults to Seattle center until GPS coordinates resolve)
+    private val prefs = application.getSharedPreferences("safestreet_gps", android.content.Context.MODE_PRIVATE)
+
+    // User Location (restored from persistent GPS cache or local coordinates)
     private val _isLocationPermissionGranted = MutableStateFlow(false)
     val isLocationPermissionGranted: StateFlow<Boolean> = _isLocationPermissionGranted.asStateFlow()
 
-    private val _userLatitude = MutableStateFlow(47.6062)
+    private val _userLatitude = MutableStateFlow(
+        prefs.getString("last_lat", null)?.toDoubleOrNull() ?: 42.8249
+    )
     val userLatitude: StateFlow<Double> = _userLatitude.asStateFlow()
 
-    private val _userLongitude = MutableStateFlow(-122.3321)
+    private val _userLongitude = MutableStateFlow(
+        prefs.getString("last_lon", null)?.toDoubleOrNull() ?: -73.9270
+    )
     val userLongitude: StateFlow<Double> = _userLongitude.asStateFlow()
 
     private val _selectedCategory = MutableStateFlow<IncidentCategory?>(null)
@@ -154,6 +160,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateUserLocation(lat: Double, lon: Double) {
+        prefs.edit().putString("last_lat", lat.toString()).putString("last_lon", lon.toString()).apply()
         _userLatitude.value = lat
         _userLongitude.value = lon
         safetyAlertManager.evaluateIncidents(repository.incidents.value, lat, lon)

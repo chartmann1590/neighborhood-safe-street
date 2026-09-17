@@ -68,13 +68,16 @@ fun FullscreenMapScreen(
                     setMultiTouchControls(true)
                     isTilesScaledToDpi = true
                     zoomController.setVisibility(CustomZoomButtonsController.Visibility.SHOW_AND_FADEOUT)
-                    controller.setZoom(14.5)
-                    controller.setCenter(
-                        if (initialFocusedIncident != null)
-                            GeoPoint(initialFocusedIncident.latitude, initialFocusedIncident.longitude)
-                        else
-                            GeoPoint(userLatitude, userLongitude)
-                    )
+                    val target = if (initialFocusedIncident != null)
+                        GeoPoint(initialFocusedIncident.latitude, initialFocusedIncident.longitude)
+                    else
+                        GeoPoint(userLatitude, userLongitude)
+                    controller.setZoom(if (initialFocusedIncident != null) 16.0 else 15.0)
+                    controller.setCenter(target)
+                    addOnFirstLayoutListener { _, _, _, _, _ ->
+                        controller.setCenter(target)
+                        invalidate()
+                    }
                 }
             },
             update = { mapView ->
@@ -119,6 +122,11 @@ fun FullscreenMapScreen(
                         }
                     }
                     mapView.overlays.add(marker)
+                }
+
+                // If user didn't select an incident, focus on user location
+                if (selectedIncident == null && initialFocusedIncident == null) {
+                    mapView.controller.setCenter(userGeo)
                 }
 
                 mapView.invalidate()

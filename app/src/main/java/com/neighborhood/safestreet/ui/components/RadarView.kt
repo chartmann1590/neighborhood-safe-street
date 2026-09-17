@@ -126,13 +126,17 @@ fun RadarView(
                     setMultiTouchControls(false)
                     isTilesScaledToDpi = true
                     zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
-                    controller.setZoom(14.0)
+                    controller.setZoom(14.5)
                     controller.setCenter(GeoPoint(userLatitude, userLongitude))
+                    addOnFirstLayoutListener { _, _, _, _, _ ->
+                        controller.setCenter(GeoPoint(userLatitude, userLongitude))
+                        invalidate()
+                    }
                 }
             },
             update = { mapView ->
-                // Smoothly pan map whenever user GPS coordinates update
-                mapView.controller.animateTo(GeoPoint(userLatitude, userLongitude))
+                // Center map whenever user GPS coordinates update
+                mapView.controller.setCenter(GeoPoint(userLatitude, userLongitude))
                 mapView.invalidate()
             },
             modifier = Modifier.fillMaxSize()

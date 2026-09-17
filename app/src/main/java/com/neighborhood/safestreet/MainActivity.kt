@@ -20,6 +20,10 @@ import com.neighborhood.safestreet.ui.theme.SafeStreetTheme
 import com.neighborhood.safestreet.ui.viewmodel.MainViewModel
 
 import android.os.Looper
+import android.content.Context
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
@@ -28,6 +32,7 @@ import com.google.android.gms.location.Priority
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
     private lateinit var fusedLocationClient: FusedLocationProviderClient
+    private var locationManager: LocationManager? = null
 
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
@@ -35,6 +40,16 @@ class MainActivity : ComponentActivity() {
                 viewModel.updateUserLocation(loc.latitude, loc.longitude)
             }
         }
+    }
+
+    private val directLocationListener = object : LocationListener {
+        override fun onLocationChanged(location: Location) {
+            viewModel.updateUserLocation(location.latitude, location.longitude)
+        }
+        @Deprecated("Deprecated in Java")
+        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+        override fun onProviderEnabled(provider: String) {}
+        override fun onProviderDisabled(provider: String) {}
     }
 
     private val permissionLauncher = registerForActivityResult(
@@ -55,9 +70,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        locationManager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
 
         checkAndRequestLocationPermissions()
         fetchLocation()
+        startLocationUpdates()
 
         // Check if opened from a push notification
         val openMap = intent?.getBooleanExtra("open_map", false) ?: false
@@ -104,14 +121,40 @@ class MainActivity : ComponentActivity() {
             val coarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
             if (fine || coarse) {
                 viewModel.setLocationPermissionGranted(true)
-                // Active high accuracy fix
+
+                // 1. Direct system LocationManager check for immediate fix without waiting
+                locationManager?.let { lm ->
+                    val providers = listOf(
+                        LocationManager.GPS_PROVIDER,
+                        LocationManager.NETWORK_PROVIDER,
+                        LocationManager.PASSIVE_PROVIDER
+                    )
+                    for (provider in providers) {
+                        try {
+                            lm.getLastKnownLocation(provider)?.let { loc ->
+                                viewModel.updateUserLocation(loc.latitude, loc.longitude)
+                            }
+                        } catch (_: SecurityException) {}
+                    }
+                }
+
+                // 2. Active high accuracy fix via FusedClient
                 fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
                     .addOnSuccessListener { loc ->
                         if (loc != null) {
                             viewModel.updateUserLocation(loc.latitude, loc.longitude)
                         }
                     }
-                // Fallback to last known cache
+
+                // 3. Balanced accuracy fix (Wi-Fi / Cell tower)
+                fusedLocationClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
+                    .addOnSuccessListener { loc ->
+                        if (loc != null) {
+                            viewModel.updateUserLocation(loc.latitude, loc.longitude)
+                        }
+                    }
+
+                // 4. Fallback to last known cache
                 fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
                     if (loc != null) {
                         viewModel.updateUserLocation(loc.latitude, loc.longitude)
@@ -128,11 +171,24 @@ class MainActivity : ComponentActivity() {
             val fine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
             val coarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
             if (fine || coarse) {
-                val request = LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 15000L)
-                    .setMinUpdateDistanceMeters(20f)
-                    .setMinUpdateIntervalMillis(10000L)
+                // Immediate continuous updates without requiring 20m physical movement
+                val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 2500L)
+                    .setMinUpdateDistanceMeters(0f)
+                    .setMinUpdateIntervalMillis(1500L)
                     .build()
                 fusedLocationClient.requestLocationUpdates(request, locationCallback, Looper.getMainLooper())
+
+                // Also register direct LocationManager listener for instant GPS updates
+                locationManager?.let { lm ->
+                    try {
+                        if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                            lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 0f, directLocationListener, Looper.getMainLooper())
+                        }
+                        if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                            lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2000L, 0f, directLocationListener, Looper.getMainLooper())
+                        }
+                    } catch (_: SecurityException) {}
+                }
             }
         } catch (e: Exception) {
             // ignore
@@ -142,6 +198,7 @@ class MainActivity : ComponentActivity() {
     private fun stopLocationUpdates() {
         try {
             fusedLocationClient.removeLocationUpdates(locationCallback)
+            locationManager?.removeUpdates(directLocationListener)
         } catch (e: Exception) {
             // ignore
         }

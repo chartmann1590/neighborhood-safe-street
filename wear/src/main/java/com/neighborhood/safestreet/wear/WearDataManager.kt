@@ -431,6 +431,98 @@ class WearDataManager(
             }
         } catch (_: Exception) {}
 
+        try {
+            // 5. Ohio OHGO Statewide Real-Time Crashes & Hazards
+            val ohgoUrl = "https://services1.arcgis.com/AeX7yhXqx2UBQyL7/arcgis/rest/services/OHGOIncidents/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$currentLon,$currentLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=25&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=10"
+            val reqOhgo = Request.Builder().url(ohgoUrl).header("User-Agent", "SafeStreetWear/2.0").build()
+            okHttpClient.newCall(reqOhgo).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val feats = root.optJSONArray("features") ?: return@use
+                    for (i in 0 until feats.length()) {
+                        val feat = feats.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("Latitude", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("Longitude", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN()) continue
+                        val desc = attr.optString("Description", "Active Crash/Hazard")
+                        val loc = attr.optString("Location", "Ohio")
+                        val catName = attr.optString("Category", "Crash")
+                        val dateEpoch = attr.optLong("LastUpdated", now)
+                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        list.add(
+                            Incident(
+                                id = "wear_ohgo_${attr.optString("IncidentID", i.toString())}",
+                                category = IncidentCategory.POLICE_ACTIVITY,
+                                subcategory = catName,
+                                title = "$catName: $loc",
+                                description = "Ohio DOT OHGO: $desc",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$loc, OH",
+                                sourceId = "wear_ohgo",
+                                agency = "ODOT OHGO",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                isHighPriority = true
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        try {
+            // 6. Maryland SHA CHART Active Incidents
+            val chartUrl = "https://chartimap1.sha.maryland.gov/arcgis/rest/services/CHART/Incidents/MapServer/0/query?geometryType=esriGeometryPoint&geometry=$currentLon,$currentLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=25&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=10"
+            val reqChart = Request.Builder().url(chartUrl).header("User-Agent", "SafeStreetWear/2.0").build()
+            okHttpClient.newCall(reqChart).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val feats = root.optJSONArray("features") ?: return@use
+                    for (i in 0 until feats.length()) {
+                        val feat = feats.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("Latitude", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("Longitude", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN()) continue
+                        val desc = attr.optString("Description", "Active Incident")
+                        val incType = attr.optString("IncidentType", "Emergency Incident")
+                        val county = attr.optString("County", "MD")
+                        val dateEpoch = attr.optLong("Created", now)
+                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+                        list.add(
+                            Incident(
+                                id = "wear_chart_${attr.optString("ID", i.toString())}",
+                                category = IncidentCategory.POLICE_ACTIVITY,
+                                subcategory = incType,
+                                title = "$incType ($county)",
+                                description = "MDOT CHART: $desc",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$county, MD",
+                                sourceId = "wear_chart",
+                                agency = "MDOT CHART",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                isHighPriority = true
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
         // Filter strictly by watch radius
         val withinRadius = list.filter { calculateDistanceMiles(it.latitude, it.longitude) <= _radiusMiles.value }
         _incidents.value = withinRadius

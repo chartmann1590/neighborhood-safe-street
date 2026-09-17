@@ -1985,11 +1985,862 @@ class OpenDataClient {
         incidents
     }
 
-    // 33. Universal ArcGIS REST Spatial Discovery Engine (Discovers and queries county/city public safety GIS layers)
+    // 33. Detroit Police Department RMS Crime Incidents (ArcGIS REST Spatial)
+    suspend fun fetchDetroitCrimes(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services2.arcgis.com/RQcpPaCpMAXzUI5g/arcgis/rest/services/RMS_Crime_Incidents/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val f = features.getJSONObject(i)
+                        val attr = f.optJSONObject("attributes") ?: continue
+                        val geom = f.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("latitude", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("longitude", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN() || lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) continue
+
+                        val offense = attr.optString("offense_de", attr.optString("offense_ca", "Crime Incident"))
+                        val addr = attr.optString("address", "Detroit, MI")
+                        val dateEpoch = attr.optLong("incident_date", attr.optLong("ibr_date", now))
+                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val objId = attr.optString("FID", attr.optString("crime_id", "$i"))
+                        incidents.add(
+                            Incident(
+                                id = "dpd_rms_$objId",
+                                category = IncidentCategory.POLICE_ACTIVITY,
+                                subcategory = offense,
+                                title = offense.replaceFirstChar { it.uppercase() },
+                                description = "Detroit Police RMS: $offense reported near $addr.",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$addr, Detroit, MI",
+                                sourceId = "detroit_pd_rms",
+                                agency = "Detroit Police Department",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "City of Detroit Open Data",
+                                isHighPriority = offense.contains("ASSAULT", true) || offense.contains("HOMICIDE", true) || offense.contains("ROBBERY", true)
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Detroit: ${e.message}")
+        }
+        incidents
+    }
+
+    // 34. Cleveland Division of Police CAD Dispatches (ArcGIS REST Spatial)
+    suspend fun fetchClevelandCad(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services3.arcgis.com/dty2kHktVXHrqO8i/arcgis/rest/services/CAD_Police/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val f = features.getJSONObject(i)
+                        val attr = f.optJSONObject("attributes") ?: continue
+                        val geom = f.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("latitude", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("longitude", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN() || lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) continue
+
+                        val incidentType = attr.optString("IncidentTypeDescription", "Police Call")
+                        val addr = attr.optString("address", "Cleveland, OH")
+                        val dateEpoch = attr.optLong("IncidentDate", now)
+                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val objId = attr.optString("recordserialno", attr.optString("OBJECTID", "$i"))
+                        incidents.add(
+                            Incident(
+                                id = "cleveland_cad_$objId",
+                                category = IncidentCategory.POLICE_ACTIVITY,
+                                subcategory = incidentType,
+                                title = incidentType.replaceFirstChar { it.uppercase() },
+                                description = "Cleveland Police CAD Dispatch: $incidentType dispatched at $addr.",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$addr, Cleveland, OH",
+                                sourceId = "cleveland_pd_cad",
+                                agency = "Cleveland Division of Police",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "OpenDataCLE Public Safety",
+                                isHighPriority = incidentType.contains("SHOTS", true) || incidentType.contains("ROBBERY", true) || incidentType.contains("ASSAULT", true)
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Cleveland: ${e.message}")
+        }
+        incidents
+    }
+
+    // 35. Raleigh Police Department Crime Incidents (ArcGIS REST Spatial)
+    suspend fun fetchRaleighCrimes(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services.arcgis.com/v400IkDOw1ad7Yad/arcgis/rest/services/Raleigh_Police_Incidents_Last_90_Days/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val f = features.getJSONObject(i)
+                        val attr = f.optJSONObject("attributes") ?: continue
+                        val geom = f.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("latitude", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("longitude", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN() || lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) continue
+
+                        val desc = attr.optString("crime_description", attr.optString("crime_category", "Crime Incident"))
+                        val addr = attr.optString("reported_block_address", "Raleigh, NC")
+                        val dateEpoch = attr.optLong("reported_date", now)
+                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val objId = attr.optString("case_number", attr.optString("OBJECTID", "$i"))
+                        incidents.add(
+                            Incident(
+                                id = "raleigh_pd_$objId",
+                                category = IncidentCategory.POLICE_ACTIVITY,
+                                subcategory = desc,
+                                title = desc.replaceFirstChar { it.uppercase() },
+                                description = "Raleigh Police Report: $desc at $addr.",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$addr, Raleigh, NC",
+                                sourceId = "raleigh_pd",
+                                agency = "Raleigh Police Department",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "City of Raleigh Open Data",
+                                isHighPriority = desc.contains("WEAPON", true) || desc.contains("ASSAULT", true) || desc.contains("ROBBERY", true)
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Raleigh: ${e.message}")
+        }
+        incidents
+    }
+
+    // 36. Metro Nashville Police Department Calls for Service (ArcGIS REST Spatial)
+    suspend fun fetchNashvilleCalls(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services2.arcgis.com/HdTo6HJqh92wn4D8/arcgis/rest/services/Metro_Nashville_Police_Department_Calls_for_Service_view/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val f = features.getJSONObject(i)
+                        val attr = f.optJSONObject("attributes") ?: continue
+                        val geom = f.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("Latitude", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("Longitude", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN() || lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) continue
+
+                        val tencode = attr.optString("Tencode_Description", attr.optString("Tencode", "Police Response"))
+                        val street = attr.optString("Street_Name", "Nashville, TN")
+                        val block = attr.optString("Block", "")
+                        val addr = if (block.isNotBlank()) "$block $street" else street
+                        val dateEpoch = attr.optLong("Call_Received", now)
+                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val objId = attr.optString("Event_Number", attr.optString("OBJECTID", "$i"))
+                        incidents.add(
+                            Incident(
+                                id = "nashville_cfs_$objId",
+                                category = IncidentCategory.POLICE_ACTIVITY,
+                                subcategory = tencode,
+                                title = "Code $tencode: MNPD Response",
+                                description = "Metro Nashville Police CAD: $tencode response logged at $addr.",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$addr, Nashville, TN",
+                                sourceId = "nashville_cfs",
+                                agency = "Metro Nashville Police Department",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "Nashville Open Data",
+                                isHighPriority = tencode.contains("SHOOT", true) || tencode.contains("FIGHT", true) || tencode.contains("ROBBERY", true)
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Nashville: ${e.message}")
+        }
+        incidents
+    }
+
+    // 37. Charlotte-Mecklenburg Police Department (CMPD) Incidents (ArcGIS REST Spatial)
+    suspend fun fetchCharlotteIncidents(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://gis.charlottenc.gov/arcgis/rest/services/CMPD/CMPDIncidents/MapServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val f = features.getJSONObject(i)
+                        val attr = f.optJSONObject("attributes") ?: continue
+                        val geom = f.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("LATITUDE_PUBLIC", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("LONGITUDE_PUBLIC", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN() || lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) continue
+
+                        val desc = attr.optString("HIGHEST_NIBRS_DESCRIPTION", "Police Incident")
+                        val addr = attr.optString("LOCATION", "Charlotte, NC")
+                        val dateEpoch = attr.optLong("DATE_REPORTED", now)
+                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val objId = attr.optString("INCIDENT_REPORT_ID", attr.optString("OBJECTID", "$i"))
+                        incidents.add(
+                            Incident(
+                                id = "cmpd_$objId",
+                                category = IncidentCategory.POLICE_ACTIVITY,
+                                subcategory = desc,
+                                title = desc.replaceFirstChar { it.uppercase() },
+                                description = "Charlotte-Mecklenburg Police: $desc reported at $addr.",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$addr, Charlotte, NC",
+                                sourceId = "cmpd_incident",
+                                agency = "Charlotte-Mecklenburg Police Department",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "Charlotte Open Data Portal",
+                                isHighPriority = desc.contains("VIOLENT", true) || desc.contains("ASSAULT", true) || desc.contains("ROBBERY", true)
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Charlotte: ${e.message}")
+        }
+        incidents
+    }
+
+    // 38. Columbus Division of Police Incident Reports (ArcGIS REST Spatial)
+    suspend fun fetchColumbusIncidents(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services1.arcgis.com/9yy6msODkIBzkUXU/arcgis/rest/services/Police_Incident_Reports/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val f = features.getJSONObject(i)
+                        val attr = f.optJSONObject("attributes") ?: continue
+                        val geom = f.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: Double.NaN
+                        val lon = geom?.optDouble("x", Double.NaN) ?: Double.NaN
+                        if (lat.isNaN() || lon.isNaN() || lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) continue
+
+                        val addr = attr.optString("IncidentLocation", "Columbus, OH")
+                        val dateEpoch = attr.optLong("OccurredOn", attr.optLong("ReportedOn", now))
+                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val objId = attr.optString("OBJECTID", "$i")
+                        incidents.add(
+                            Incident(
+                                id = "columbus_pd_$objId",
+                                category = IncidentCategory.POLICE_ACTIVITY,
+                                subcategory = "Police Incident",
+                                title = "Police Response: Columbus",
+                                description = "Columbus Division of Police: Incident logged at $addr.",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$addr, Columbus, OH",
+                                sourceId = "columbus_pd",
+                                agency = "Columbus Division of Police",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "Columbus Open Data",
+                                isHighPriority = false
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Columbus: ${e.message}")
+        }
+        incidents
+    }
+
+    // 39. Denver Police Department Crime & Traffic Incidents (ArcGIS REST Spatial)
+    suspend fun fetchDenverCrimes(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services.arcgis.com/aY6P1IjnU1hzETf0/arcgis/rest/services/Dec18Crime/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val f = features.getJSONObject(i)
+                        val attr = f.optJSONObject("attributes") ?: continue
+                        val geom = f.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("GEO_LAT", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("GEO_LON", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN() || lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) continue
+
+                        val offense = attr.optString("OFFENSE_TYPE_ID", "incident").replace("-", " ")
+                        val addr = attr.optString("INCIDENT_ADDRESS", "Denver, CO")
+                        val dateEpoch = attr.optLong("FIRST_OCCURRENCE_DATE", now)
+                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val isTraffic = attr.optInt("IS_TRAFFIC", 0) == 1
+                        val cat = if (isTraffic) IncidentCategory.VEHICLE_CRASH else IncidentCategory.POLICE_ACTIVITY
+                        val objId = attr.optString("INCIDENT_ID", attr.optString("OBJECTID", "$i"))
+                        incidents.add(
+                            Incident(
+                                id = "denver_pd_$objId",
+                                category = cat,
+                                subcategory = offense,
+                                title = offense.replaceFirstChar { it.uppercase() },
+                                description = "Denver Police Department: $offense reported near $addr.",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$addr, Denver, CO",
+                                sourceId = "denver_pd",
+                                agency = "Denver Police Department",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "Denver Open Data Catalog",
+                                isHighPriority = offense.contains("assault", true) || offense.contains("homicide", true)
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Denver: ${e.message}")
+        }
+        incidents
+    }
+
+    // 40. Tulsa Police Department Crime Incidents (ArcGIS REST Spatial)
+    suspend fun fetchTulsaCrimes(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services5.arcgis.com/cuQhNeNcUrgLmYGD/arcgis/rest/services/Tulsa_Crime_Time_Display/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val f = features.getJSONObject(i)
+                        val attr = f.optJSONObject("attributes") ?: continue
+                        val geom = f.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: Double.NaN
+                        val lon = geom?.optDouble("x", Double.NaN) ?: Double.NaN
+                        if (lat.isNaN() || lon.isNaN() || lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) continue
+
+                        val crimeType = attr.optString("CRIME_TYPE", "Crime Incident")
+                        val addr = attr.optString("BLOCK_ADDRESS", "Tulsa, OK")
+                        val dateEpoch = attr.optLong("START_DATE", now)
+                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val objId = attr.optString("OBJECTID", "$i")
+                        incidents.add(
+                            Incident(
+                                id = "tulsa_pd_$objId",
+                                category = IncidentCategory.POLICE_ACTIVITY,
+                                subcategory = crimeType,
+                                title = crimeType.replaceFirstChar { it.uppercase() },
+                                description = "Tulsa Police Report: $crimeType at $addr.",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$addr, Tulsa, OK",
+                                sourceId = "tulsa_pd",
+                                agency = "Tulsa Police Department",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "City of Tulsa Open Data",
+                                isHighPriority = crimeType.contains("MURDER", true) || crimeType.contains("ROBBERY", true)
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Tulsa: ${e.message}")
+        }
+        incidents
+    }
+
+    // 41. Omaha Police Department Incident Data (ArcGIS REST Spatial)
+    suspend fun fetchOmahaIncidents(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services1.arcgis.com/tIBLyYZX96jUntYm/arcgis/rest/services/Omaha_Police_Incident_Data_(View)/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val f = features.getJSONObject(i)
+                        val attr = f.optJSONObject("attributes") ?: continue
+                        val geom = f.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("LatBlock", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("LonBlock", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN() || lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) continue
+
+                        val category = attr.optString("NIBRSCategory", "Police Incident")
+                        val addr = attr.optString("AddressBlock", "Omaha, NE")
+                        val dateEpoch = attr.optLong("dteMaxSystem", now)
+                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val objId = attr.optString("OBJECTID", "$i")
+                        incidents.add(
+                            Incident(
+                                id = "omaha_pd_$objId",
+                                category = IncidentCategory.POLICE_ACTIVITY,
+                                subcategory = category,
+                                title = category.replaceFirstChar { it.uppercase() },
+                                description = "Omaha Police: $category incident reported at $addr.",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$addr, Omaha, NE",
+                                sourceId = "omaha_pd",
+                                agency = "Omaha Police Department",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "City of Omaha Open Data",
+                                isHighPriority = category.contains("Assault", true) || category.contains("Robbery", true)
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Omaha: ${e.message}")
+        }
+        incidents
+    }
+
+    // 42. Tucson Police Department Calls for Service (ArcGIS REST Spatial)
+    suspend fun fetchTucsonCalls(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://gis.tucsonaz.gov/arcgis/rest/services/PublicMaps/OpenData_PublicSafety/MapServer/41/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val f = features.getJSONObject(i)
+                        val attr = f.optJSONObject("attributes") ?: continue
+                        val geom = f.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: Double.NaN
+                        val lon = geom?.optDouble("x", Double.NaN) ?: Double.NaN
+                        if (lat.isNaN() || lon.isNaN() || lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) continue
+
+                        val nature = attr.optString("NatureCodeDesc", "Police Call")
+                        val addr = attr.optString("ADDRESS_PUBLIC", "Tucson, AZ")
+                        val dateEpoch = attr.optLong("ACTDATETIME", now)
+                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val objId = attr.optString("call_id", attr.optString("OBJECTID", "$i"))
+                        incidents.add(
+                            Incident(
+                                id = "tucson_cad_$objId",
+                                category = IncidentCategory.POLICE_ACTIVITY,
+                                subcategory = nature,
+                                title = nature.replaceFirstChar { it.uppercase() },
+                                description = "Tucson Police 911 Call: $nature at $addr.",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$addr, Tucson, AZ",
+                                sourceId = "tucson_pd_cad",
+                                agency = "Tucson Police Department",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "City of Tucson Open Data",
+                                isHighPriority = nature.contains("SHOTS", true) || nature.contains("WEAPON", true) || nature.contains("FIGHT", true)
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Tucson: ${e.message}")
+        }
+        incidents
+    }
+
+    // 43. Minneapolis Fire Department 911 CAD & EMS Calls for Service (ArcGIS REST Spatial)
+    suspend fun fetchMinneapolisFire(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services.arcgis.com/afSMGVsC7QlRK1kZ/arcgis/rest/services/MFD_Calls_For_Service/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val f = features.getJSONObject(i)
+                        val attr = f.optJSONObject("attributes") ?: continue
+                        val geom = f.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: Double.NaN
+                        val lon = geom?.optDouble("x", Double.NaN) ?: Double.NaN
+                        if (lat.isNaN() || lon.isNaN() || lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) continue
+
+                        val incidentType = attr.optString("incident_type", "Fire/EMS Incident")
+                        val streetNum = attr.optString("street_number", "")
+                        val streetName = attr.optString("street_name", "Minneapolis, MN")
+                        val addr = if (streetNum.isNotBlank()) "$streetNum $streetName" else streetName
+                        val dateEpoch = attr.optLong("alarm_date", now)
+                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val isFire = incidentType.contains("FIRE", true) || incidentType.contains("SMOKE", true) || incidentType.contains("ALARM", true)
+                        val cat = if (isFire) IncidentCategory.FIRE_SMOKE else IncidentCategory.MEDICAL_RESPONSE
+                        val objId = attr.optString("incident_number", attr.optString("OBJECTID", "$i"))
+                        incidents.add(
+                            Incident(
+                                id = "mfd_cfs_$objId",
+                                category = cat,
+                                subcategory = incidentType,
+                                title = incidentType.replaceFirstChar { it.uppercase() },
+                                description = "Minneapolis Fire Department 911 CAD: $incidentType dispatched at $addr.",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$addr, Minneapolis, MN",
+                                sourceId = "minneapolis_mfd_cad",
+                                agency = "Minneapolis Fire Department",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "City of Minneapolis Open Data",
+                                isHighPriority = isFire || incidentType.contains("BLS", true)
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Minneapolis Fire: ${e.message}")
+        }
+        incidents
+    }
+
+    // 44. Ohio Statewide OHGO Real-Time Crashes, Hazards & Closures (ODOT ArcGIS REST Spatial)
+    suspend fun fetchOhioStatewideIncidents(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services1.arcgis.com/AeX7yhXqx2UBQyL7/arcgis/rest/services/OHGOIncidents/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val f = features.getJSONObject(i)
+                        val attr = f.optJSONObject("attributes") ?: continue
+                        val geom = f.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("Latitude", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("Longitude", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN() || lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) continue
+
+                        val desc = attr.optString("Description", "Active Traffic Crash/Hazard")
+                        val loc = attr.optString("Location", "Ohio Highway")
+                        val catName = attr.optString("Category", "Crash")
+                        val dateEpoch = attr.optLong("LastUpdated", now)
+                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val objId = attr.optString("IncidentID", attr.optString("OBJECTID", "$i"))
+                        incidents.add(
+                            Incident(
+                                id = "ohgo_$objId",
+                                category = IncidentCategory.VEHICLE_CRASH,
+                                subcategory = catName,
+                                title = "$catName: $loc",
+                                description = "Ohio DOT OHGO: $desc",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$loc, OH",
+                                sourceId = "ohio_dot_ohgo",
+                                agency = "Ohio Department of Transportation (OHGO)",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "State of Ohio Open Data",
+                                isHighPriority = catName.contains("Crash", true)
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Ohio OHGO: ${e.message}")
+        }
+        incidents
+    }
+
+    // 45. Pennsylvania Statewide Travel Advisories & 911 CAD Police Activity (PennDOT ArcGIS REST Spatial)
+    suspend fun fetchPennsylvaniaAdvisories(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services9.arcgis.com/dEM0v3itWrU2mnNn/arcgis/rest/services/travel_advisories/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val f = features.getJSONObject(i)
+                        val attr = f.optJSONObject("attributes") ?: continue
+                        val geom = f.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: Double.NaN
+                        val lon = geom?.optDouble("x", Double.NaN) ?: Double.NaN
+                        if (lat.isNaN() || lon.isNaN() || lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) continue
+
+                        val desc = attr.optString("description", "Police Activity / Travel Disruption")
+                        val eventType = attr.optString("event_type", "POLICE ACTIVITY")
+                        val source = attr.optString("source", "PA CAD")
+                        val dateEpoch = attr.optLong("start_date", now)
+                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val objId = attr.optString("event_id", attr.optString("OBJECTID", "$i"))
+                        incidents.add(
+                            Incident(
+                                id = "pa_adv_$objId",
+                                category = if (eventType.contains("POLICE", true)) IncidentCategory.POLICE_ACTIVITY else IncidentCategory.VEHICLE_CRASH,
+                                subcategory = eventType,
+                                title = "$eventType: $source",
+                                description = "Pennsylvania Travel Advisories & 911 CAD: $desc",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "Pennsylvania, USA",
+                                sourceId = "pa_travel_cad",
+                                agency = "PennDOT & County 911 Dispatch ($source)",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "Commonwealth of Pennsylvania Open Data",
+                                isHighPriority = eventType.contains("POLICE", true) || desc.contains("ACCIDENT", true)
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Pennsylvania: ${e.message}")
+        }
+        incidents
+    }
+
+    // 46. Maryland SHA CHART Real-Time Emergency Incidents & Traffic Operations (MDOT ArcGIS REST Spatial)
+    suspend fun fetchMarylandChartIncidents(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://chartimap1.sha.maryland.gov/arcgis/rest/services/CHART/Incidents/MapServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val f = features.getJSONObject(i)
+                        val attr = f.optJSONObject("attributes") ?: continue
+                        val geom = f.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("Latitude", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("Longitude", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN() || lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) continue
+
+                        val desc = attr.optString("Description", "Active Incident")
+                        val incType = attr.optString("IncidentType", "Emergency Incident")
+                        val county = attr.optString("County", "Maryland")
+                        val dateEpoch = attr.optLong("Created", now)
+                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val objId = attr.optString("ID", attr.optString("rowid", "$i"))
+                        incidents.add(
+                            Incident(
+                                id = "md_chart_$objId",
+                                category = IncidentCategory.VEHICLE_CRASH,
+                                subcategory = incType,
+                                title = "$incType ($county)",
+                                description = "Maryland CHART Operations: $desc",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$county, MD",
+                                sourceId = "maryland_sha_chart",
+                                agency = "Maryland DOT State Highway Administration (CHART)",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "State of Maryland Open Data",
+                                isHighPriority = incType.contains("Collision", true) || incType.contains("Closure", true)
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Maryland CHART: ${e.message}")
+        }
+        incidents
+    }
+
+    // 47. Washington State WSDOT Emergency Road Alerts & Travel Incidents (WSDOT ArcGIS REST Spatial)
+    suspend fun fetchWashingtonRoadAlerts(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://data.wsdot.wa.gov/arcgis/rest/services/TravelInformation/TravelInfoRoadAlerts/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val f = features.getJSONObject(i)
+                        val attr = f.optJSONObject("attributes") ?: continue
+                        val geom = f.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: Double.NaN
+                        val lon = geom?.optDouble("x", Double.NaN) ?: Double.NaN
+                        if (lat.isNaN() || lon.isNaN() || lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) continue
+
+                        val headline = attr.optString("HeadlineMessage", "Active Road Alert")
+                        val catDesc = attr.optString("EventCategoryDescription", "Traffic Alert")
+                        val road = attr.optString("Road", "Washington State")
+                        val dateEpoch = attr.optLong("LastModifiedDate", now)
+                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val objId = attr.optString("OBJECTID", "$i")
+                        incidents.add(
+                            Incident(
+                                id = "wsdot_alert_$objId",
+                                category = IncidentCategory.ROAD_HAZARD,
+                                subcategory = catDesc,
+                                title = "$catDesc: $road",
+                                description = "WSDOT Emergency Alert: $headline",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$road, WA",
+                                sourceId = "wsdot_travel_alerts",
+                                agency = "Washington State Department of Transportation",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "State of Washington Open Data",
+                                isHighPriority = attr.optInt("RoadClosedFlag", 0) == 1
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching WSDOT alerts: ${e.message}")
+        }
+        incidents
+    }
+
+    // 48. Universal ArcGIS REST Spatial Discovery Engine (Discovers and queries county/city public safety GIS layers)
     suspend fun fetchArcGisDiscovery(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
         val incidents = mutableListOf<Incident>()
         try {
-            val searchUrl = "https://www.arcgis.com/sharing/rest/search?q=type:%22Feature%20Service%22%20AND%20(tags:%22crime%22%20OR%20tags:%22police%22%20OR%20tags:%22fire%22%20OR%20tags:%22traffic%22)&f=json&num=6"
+            val searchUrl = "https://www.arcgis.com/sharing/rest/search?q=type:%22Feature%20Service%22%20AND%20(tags:%22crime%22%20OR%20tags:%22police%22%20OR%20tags:%22fire%22%20OR%20tags:%22traffic%22%20OR%20tags:%22cad%22)&f=json&num=8"
             val req = Request.Builder().url(searchUrl).header("User-Agent", "SafeStreetApp/2.0").build()
             val candidateUrls = mutableListOf<Pair<String, String>>() // url, title
             client.newCall(req).execute().use { resp ->
@@ -2009,9 +2860,9 @@ class OpenDataClient {
             }
 
             val now = System.currentTimeMillis()
-            for ((serviceUrl, title) in candidateUrls.take(3)) {
+            for ((serviceUrl, title) in candidateUrls.take(4)) {
                 try {
-                    val queryUrl = "$serviceUrl/0/query?geometry=$userLon,$userLat&geometryType=esriGeometryPoint&inSR=4326&distance=$radiusMiles&units=esriSRUnit_StatuteMile&spatialRel=esriSpatialRelIntersects&outFields=*&f=json&resultRecordCount=10"
+                    val queryUrl = "$serviceUrl/0/query?geometry=$userLon,$userLat&geometryType=esriGeometryPoint&inSR=4326&distance=$radiusMiles&units=esriSRUnit_StatuteMile&spatialRel=esriSpatialRelIntersects&outSR=4326&outFields=*&f=json&resultRecordCount=10"
                     val queryReq = Request.Builder().url(queryUrl).header("User-Agent", "SafeStreetApp/2.0").build()
                     client.newCall(queryReq).execute().use { qResp ->
                         if (qResp.isSuccessful) {
@@ -2023,14 +2874,20 @@ class OpenDataClient {
                                 val attr = feat.optJSONObject("attributes") ?: continue
                                 val geom = feat.optJSONObject("geometry")
 
-                                val lat = attr.optString("LATITUDE").toDoubleOrNull()
+                                val lat = geom?.optDouble("y", Double.NaN)
+                                    ?: attr.optString("LATITUDE").toDoubleOrNull()
                                     ?: attr.optDouble("LATITUDE", Double.NaN).takeIf { !it.isNaN() }
-                                    ?: geom?.optDouble("y", Double.NaN) ?: Double.NaN
-                                val lon = attr.optString("LONGITUDE").toDoubleOrNull()
+                                    ?: Double.NaN
+                                val lon = geom?.optDouble("x", Double.NaN)
+                                    ?: attr.optString("LONGITUDE").toDoubleOrNull()
                                     ?: attr.optDouble("LONGITUDE", Double.NaN).takeIf { !it.isNaN() }
-                                    ?: geom?.optDouble("x", Double.NaN) ?: Double.NaN
+                                    ?: Double.NaN
 
                                 if (lat.isNaN() || lon.isNaN() || lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) continue
+
+                                val dateEpoch = attr.optLong("DATE", attr.optLong("DATE_REPORTED", attr.optLong("IncidentDate", attr.optLong("alarm_date", attr.optLong("Created", now)))))
+                                val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                                if (now - occurredAt !in -3600000L..86400000L) continue
 
                                 val objId = attr.optLong("OBJECTID", f.toLong())
                                 val catName = attr.optString("CATEGORY", attr.optString("INCIDENT_TYPE", attr.optString("OFFENSE", title)))
@@ -2043,8 +2900,8 @@ class OpenDataClient {
                                         subcategory = catName,
                                         title = catName,
                                         description = "ArcGIS Spatial Feed ($title): $catName near $addr.",
-                                        occurredAtEpochMs = now,
-                                        sourceUpdatedAtEpochMs = now,
+                                        occurredAtEpochMs = occurredAt,
+                                        sourceUpdatedAtEpochMs = occurredAt,
                                         receivedAtEpochMs = now,
                                         latitude = lat,
                                         longitude = lon,

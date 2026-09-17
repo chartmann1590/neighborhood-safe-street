@@ -239,6 +239,81 @@ fun SourcesSheet(onDismiss: () -> Unit) {
                 license = "City of Buffalo Open Data"
             )
             SourceRow(
+                name = "Detroit Police Department (DPD RMS Crime Incidents)",
+                latency = "Active municipal crime RMS via ArcGIS REST spatial query",
+                license = "City of Detroit Open Data"
+            )
+            SourceRow(
+                name = "Cleveland Division of Police CAD 911 Dispatches",
+                latency = "Real-time CAD 911 calls dispatched via ArcGIS REST",
+                license = "OpenDataCLE Public Safety"
+            )
+            SourceRow(
+                name = "Raleigh Police Department Crime Incidents",
+                latency = "Rolling incident reports across Raleigh via ArcGIS REST",
+                license = "City of Raleigh Open Data"
+            )
+            SourceRow(
+                name = "Metro Nashville Police Department (MNPD CAD Calls)",
+                latency = "Real-time CAD 911 calls for service in Nashville/Davidson County",
+                license = "Nashville Open Data"
+            )
+            SourceRow(
+                name = "Charlotte-Mecklenburg Police Department (CMPD Incidents)",
+                latency = "Active police incident reports via Charlotte ArcGIS REST",
+                license = "Charlotte Open Data Portal"
+            )
+            SourceRow(
+                name = "Columbus Division of Police Incident Reports",
+                latency = "Rolling police incident reports in Columbus, OH",
+                license = "Columbus Open Data"
+            )
+            SourceRow(
+                name = "Denver Police Department Crime & Traffic Incidents",
+                latency = "Real-time spatial queries for crime & crashes in Denver",
+                license = "Denver Open Data Catalog"
+            )
+            SourceRow(
+                name = "Tulsa Police Department Crime Incidents",
+                latency = "Active municipal law enforcement reports in Tulsa, OK",
+                license = "City of Tulsa Open Data"
+            )
+            SourceRow(
+                name = "Omaha Police Department Incident Data",
+                latency = "Real-time law enforcement incident reporting in Omaha, NE",
+                license = "City of Omaha Open Data"
+            )
+            SourceRow(
+                name = "Tucson Police Department (TPD CAD 911 Calls)",
+                latency = "Real-time 911 calls for service in Tucson, AZ",
+                license = "City of Tucson Open Data"
+            )
+            SourceRow(
+                name = "Minneapolis Fire Department 911 CAD & EMS Calls",
+                latency = "Real-time fire and emergency medical dispatches in Minneapolis",
+                license = "City of Minneapolis Open Data"
+            )
+            SourceRow(
+                name = "Ohio Statewide (OHGO Real-Time Crashes & Hazards)",
+                latency = "Real-time crashes, hazards, and closures statewide across Ohio",
+                license = "Ohio Department of Transportation (ODOT)"
+            )
+            SourceRow(
+                name = "Pennsylvania Statewide Travel Advisories & 911 CAD",
+                latency = "Real-time police activity and emergency CAD dispatches in PA",
+                license = "Commonwealth of Pennsylvania / County Dispatch"
+            )
+            SourceRow(
+                name = "Maryland State Highway Administration (CHART Operations)",
+                latency = "Real-time highway and emergency incident dispatches across MD",
+                license = "Maryland DOT State Highway Administration"
+            )
+            SourceRow(
+                name = "Washington State DOT (WSDOT Travel & Road Alerts)",
+                latency = "Real-time emergency travel alerts, closures & hazards in WA",
+                license = "Washington State Department of Transportation"
+            )
+            SourceRow(
                 name = "GDACS Worldwide Disaster Alerts",
                 latency = "Updated every 6 minutes for global civil protection",
                 license = "United Nations & European Commission"

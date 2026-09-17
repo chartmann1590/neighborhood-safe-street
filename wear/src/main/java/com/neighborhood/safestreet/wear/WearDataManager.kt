@@ -747,6 +747,95 @@ class WearDataManager(
             }
         } catch (_: Exception) {}
 
+        try {
+            // 11. Northern Virginia / Loudoun County CAD Live Traffic & Incidents
+            val novaUrl = "https://services1.arcgis.com/MxjRokvPm7bjslyR/arcgis/rest/services/CAD_CuurentTrafficIncidents_UD/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$currentLon,$currentLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=25&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=10"
+            val reqNova = Request.Builder().url(novaUrl).header("User-Agent", "SafeStreetWear/2.0").build()
+            okHttpClient.newCall(reqNova).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val feats = root.optJSONArray("features") ?: return@use
+                    for (i in 0 until feats.length()) {
+                        val feat = feats.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("latitude", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("longitude", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN()) continue
+
+                        val desc = attr.optString("description", "CAD Incident")
+                        val loc = attr.optString("location", "Loudoun County")
+                        val agency = attr.optString("agency_name", "Loudoun/Middleburg Police")
+
+                        list.add(
+                            Incident(
+                                id = "wear_nova_${attr.optLong("OBJECTID", i.toLong())}",
+                                category = IncidentCategory.VEHICLE_CRASH,
+                                subcategory = desc,
+                                title = "$desc: $loc",
+                                description = "Live CAD: $desc at $loc ($agency)",
+                                occurredAtEpochMs = now,
+                                sourceUpdatedAtEpochMs = now,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$loc, Loudoun Co, VA",
+                                sourceId = "wear_nova_cad",
+                                agency = agency,
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                isHighPriority = true
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        try {
+            // 12. Colorado Road Closures & Hazard Incidents
+            val coUrl = "https://services1.arcgis.com/0MSEUqKaxRlEPj5g/arcgis/rest/services/RoadClosures_public_df7039994f85494b9fa6d9bdb5383aee/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$currentLon,$currentLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=25&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=10"
+            val reqCo = Request.Builder().url(coUrl).header("User-Agent", "SafeStreetWear/2.0").build()
+            okHttpClient.newCall(reqCo).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val feats = root.optJSONArray("features") ?: return@use
+                    for (i in 0 until feats.length()) {
+                        val feat = feats.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: Double.NaN
+                        val lon = geom?.optDouble("x", Double.NaN) ?: Double.NaN
+                        if (lat.isNaN() || lon.isNaN()) continue
+
+                        val reason = attr.optString("reason", "Hazard")
+                        val street = attr.optString("street", "CO Route")
+
+                        list.add(
+                            Incident(
+                                id = "wear_co_${attr.optLong("OBJECTID", i.toLong())}",
+                                category = IncidentCategory.ROAD_HAZARD,
+                                subcategory = reason,
+                                title = "$reason: $street",
+                                description = "CDOT Hazard: $reason on $street",
+                                occurredAtEpochMs = now,
+                                sourceUpdatedAtEpochMs = now,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$street, CO",
+                                sourceId = "wear_co_hazard",
+                                agency = "CDOT",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                isHighPriority = false
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
         // Filter strictly by watch radius
         val withinRadius = list.filter { calculateDistanceMiles(it.latitude, it.longitude) <= _radiusMiles.value }
         _incidents.value = withinRadius

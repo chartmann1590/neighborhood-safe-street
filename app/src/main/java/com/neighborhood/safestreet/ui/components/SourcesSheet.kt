@@ -354,6 +354,61 @@ fun SourcesSheet(onDismiss: () -> Unit) {
                 license = "City of Las Vegas & Clark County Open Data"
             )
             SourceRow(
+                name = "Northern Virginia 911 CAD Traffic Incidents (Loudoun & Middleburg)",
+                latency = "Real-time CAD traffic and emergency hazards dispatched live",
+                license = "Loudoun County & Town of Middleburg Public Safety Open Data"
+            )
+            SourceRow(
+                name = "Baltimore Police Department (BPD NIBRS Crime Reports)",
+                latency = "Official Group A NIBRS crime dispatches across Baltimore City",
+                license = "City of Baltimore Open Data (BPD)"
+            )
+            SourceRow(
+                name = "Boston Police Department (BPD Incident Reports)",
+                latency = "Citywide public crime incident dispatches across all BPD districts",
+                license = "City of Boston Public Safety Records"
+            )
+            SourceRow(
+                name = "Tampa Police Department (TPD Public Crime Incidents)",
+                latency = "Rolling public crime dispatches across Tampa neighborhoods",
+                license = "City of Tampa Open Data (TPD)"
+            )
+            SourceRow(
+                name = "Houston Police Department (HPD Recent Crimes)",
+                latency = "Recent Part 1 and violent crime incidents reported across Houston, TX",
+                license = "City of Houston Open Data Portal (HPD)"
+            )
+            SourceRow(
+                name = "Lincoln County & St. Louis Regional 911 CAD Dispatches",
+                latency = "Live ambulance, fire, and police 911 calls across St. Louis metro area",
+                license = "Lincoln County Emergency Services & Regional CAD"
+            )
+            SourceRow(
+                name = "Colorado DOT Emergency Road Closures & Hazards",
+                latency = "Real-time emergency flood, crash, and hazard road closures statewide",
+                license = "Colorado Department of Transportation & State Emergency Operations"
+            )
+            SourceRow(
+                name = "Portland Police Bureau (PPB Crime Data)",
+                latency = "Official crime incident reports across Portland neighborhoods",
+                license = "City of Portland Open Data (PPB)"
+            )
+            SourceRow(
+                name = "Boulder Police Department CAD Calls for Service",
+                latency = "Public safety and police dispatch calls across Boulder, Colorado",
+                license = "City of Boulder Open Data (BPD CAD)"
+            )
+            SourceRow(
+                name = "Minneapolis Police Department (MPD Crime Reports)",
+                latency = "Official police incident reports and dispatches across Minneapolis, MN",
+                license = "City of Minneapolis Open Data (MPD)"
+            )
+            SourceRow(
+                name = "Princeton Police & Fire CAD Calls for Service",
+                latency = "Live emergency dispatch calls in Collin County / DFW Metroplex, TX",
+                license = "City of Princeton Public Safety Open Data"
+            )
+            SourceRow(
                 name = "GDACS Worldwide Disaster Alerts",
                 latency = "Updated every 6 minutes for global civil protection",
                 license = "United Nations & European Commission"

@@ -40,7 +40,12 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import org.w3c.dom.Element
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.TimeUnit
+import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.math.*
 
 enum class WearConnectionMode {
@@ -516,6 +521,225 @@ class WearDataManager(
                                 agency = "MDOT CHART",
                                 provenance = ProvenanceType.OFFICIAL_LIVE,
                                 isHighPriority = true
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        try {
+            // 7. California Highway Patrol (CHP CAD Live Stream - Statewide California)
+            val chpUrl = "http://media.chp.ca.gov/sa_xml/sa.xml"
+            val reqChp = Request.Builder().url(chpUrl).header("User-Agent", "SafeStreetWear/2.0").build()
+            okHttpClient.newCall(reqChp).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val stream = resp.body?.byteStream() ?: return@use
+                    val factory = DocumentBuilderFactory.newInstance()
+                    val builder = factory.newDocumentBuilder()
+                    val doc = builder.parse(stream)
+                    val logNodes = doc.getElementsByTagName("Log")
+                    for (i in 0 until minOf(logNodes.length, 50)) {
+                        val logEl = logNodes.item(i) as? Element ?: continue
+                        val latLonRaw = logEl.getElementsByTagName("LATLON").item(0)?.textContent?.replace("\"", "")?.trim() ?: ""
+                        if (!latLonRaw.contains(":")) continue
+                        val parts = latLonRaw.split(":")
+                        if (parts.size != 2) continue
+                        val latVal = parts[0].toDoubleOrNull() ?: continue
+                        val lonVal = parts[1].toDoubleOrNull() ?: continue
+                        val lat = latVal / 1000000.0
+                        val lon = -(Math.abs(lonVal) / 1000000.0)
+                        if (lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+
+                        val dist = calculateDistanceMiles(lat, lon)
+                        if (dist > _radiusMiles.value) continue
+
+                        val logType = logEl.getElementsByTagName("LogType").item(0)?.textContent?.replace("\"", "")?.trim() ?: "Traffic Incident"
+                        val loc = logEl.getElementsByTagName("Location").item(0)?.textContent?.replace("\"", "")?.trim() ?: "Highway"
+                        val area = logEl.getElementsByTagName("Area").item(0)?.textContent?.replace("\"", "")?.trim() ?: "CA"
+                        val timeStr = logEl.getElementsByTagName("LogTime").item(0)?.textContent?.replace("\"", "")?.trim() ?: ""
+
+                        var occurredAt = now
+                        val sdf = SimpleDateFormat("MMM dd yyyy h:mma", Locale.US).apply {
+                            timeZone = TimeZone.getTimeZone("America/Los_Angeles")
+                        }
+                        try {
+                            val parsed = sdf.parse(timeStr)
+                            if (parsed != null) occurredAt = parsed.time
+                        } catch (_: Exception) {}
+
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val category = when {
+                            logType.contains("Collision", ignoreCase = true) || logType.contains("Crash", ignoreCase = true) ||
+                                logType.startsWith("1182") || logType.startsWith("1183") || logType.startsWith("1179") -> IncidentCategory.VEHICLE_CRASH
+                            logType.contains("Fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
+                            logType.contains("Hazard", ignoreCase = true) || logType.startsWith("1125") -> IncidentCategory.ROAD_HAZARD
+                            else -> IncidentCategory.POLICE_ACTIVITY
+                        }
+
+                        val id = logEl.getAttribute("ID").ifBlank { "wear_chp_$i" }
+                        list.add(
+                            Incident(
+                                id = "wear_chp_${Math.abs(id.hashCode())}",
+                                category = category,
+                                subcategory = logType,
+                                title = "$logType: $loc",
+                                description = "CHP CAD Dispatch ($area): $logType at $loc.",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$loc, $area, CA",
+                                sourceId = "wear_chp_cad",
+                                agency = "CHP CAD",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                isHighPriority = category == IncidentCategory.VEHICLE_CRASH || category == IncidentCategory.FIRE_SMOKE
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        try {
+            // 8. North Carolina TIMS Incidents (Statewide NC)
+            val ncUrl = "https://services.arcgis.com/NuWFvHYDMVmmxMeM/arcgis/rest/services/NCDOT_TIMSIncidentsByIncidentType/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$currentLon,$currentLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=25&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=10"
+            val reqNc = Request.Builder().url(ncUrl).header("User-Agent", "SafeStreetWear/2.0").build()
+            okHttpClient.newCall(reqNc).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val feats = root.optJSONArray("features") ?: return@use
+                    for (i in 0 until feats.length()) {
+                        val feat = feats.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("Latitude", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("Longitude", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN()) continue
+
+                        val eventType = attr.optString("EventType", attr.optString("EventSubType", "Traffic Incident"))
+                        val loc = attr.optString("Location", attr.optString("Road", "NC Highway"))
+                        val county = attr.optString("CountyName", "NC")
+                        val rawTime = attr.optLong("LastUpdateDateTime", now)
+                        val occurredAt = if (rawTime > 0) rawTime else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val category = when {
+                            eventType.contains("accident", ignoreCase = true) || eventType.contains("crash", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
+                            eventType.contains("fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
+                            else -> IncidentCategory.ROAD_HAZARD
+                        }
+
+                        list.add(
+                            Incident(
+                                id = "wear_nc_${attr.optLong("OBJECTID", i.toLong())}",
+                                category = category,
+                                subcategory = eventType,
+                                title = "$eventType: $loc",
+                                description = "NCDOT TIMS: $eventType ($county Co)",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$loc, $county, NC",
+                                sourceId = "wear_ncdot",
+                                agency = "NCDOT DriveNC",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                isHighPriority = true
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        try {
+            // 9. Florida 511 Live Traffic Data (Statewide FL)
+            val flUrl = "https://services8.arcgis.com/qhgIImgl4UmEEyAS/arcgis/rest/services/FL_511_Traffic_Data/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$currentLon,$currentLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=25&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=10"
+            val reqFl = Request.Builder().url(flUrl).header("User-Agent", "SafeStreetWear/2.0").build()
+            okHttpClient.newCall(reqFl).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val feats = root.optJSONArray("features") ?: return@use
+                    for (i in 0 until feats.length()) {
+                        val feat = feats.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("LATITUDE", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("LONGITUDE", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN()) continue
+
+                        val incType = attr.optString("TYPE", "Traffic Incident")
+                        val road = attr.optString("ROADWAY", "FL Highway")
+                        val county = attr.optString("COUNTY", "FL")
+
+                        list.add(
+                            Incident(
+                                id = "wear_fl_${attr.optLong("FID", i.toLong())}",
+                                category = IncidentCategory.VEHICLE_CRASH,
+                                subcategory = incType,
+                                title = "$incType: $road",
+                                description = "FL511: $incType on $road ($county)",
+                                occurredAtEpochMs = now,
+                                sourceUpdatedAtEpochMs = now,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$road, $county, FL",
+                                sourceId = "wear_fl511",
+                                agency = "FDOT FL511",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                isHighPriority = true
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        try {
+            // 10. Utah UDOT Events (Statewide UT)
+            val utahUrl = "https://services6.arcgis.com/KaHXE9OkiB9e63uE/arcgis/rest/services/UDOT_Events/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$currentLon,$currentLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=25&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=10"
+            val reqUtah = Request.Builder().url(utahUrl).header("User-Agent", "SafeStreetWear/2.0").build()
+            okHttpClient.newCall(reqUtah).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val feats = root.optJSONArray("features") ?: return@use
+                    for (i in 0 until feats.length()) {
+                        val feat = feats.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: Double.NaN
+                        val lon = geom?.optDouble("x", Double.NaN) ?: Double.NaN
+                        if (lat.isNaN() || lon.isNaN()) continue
+
+                        val eventType = attr.optString("EventType", "Road Incident")
+                        val loc = attr.optString("Location", "Utah Highway")
+                        val county = attr.optString("County", "UT")
+
+                        list.add(
+                            Incident(
+                                id = "wear_utah_${attr.optLong("OBJECTID", i.toLong())}",
+                                category = IncidentCategory.ROAD_HAZARD,
+                                subcategory = eventType,
+                                title = "$eventType: $loc",
+                                description = "Utah DOT: $eventType on $loc ($county)",
+                                occurredAtEpochMs = now,
+                                sourceUpdatedAtEpochMs = now,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$loc, $county, UT",
+                                sourceId = "wear_udot",
+                                agency = "UDOT Events",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                isHighPriority = false
                             )
                         )
                     }

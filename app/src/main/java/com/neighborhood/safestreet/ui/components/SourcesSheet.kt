@@ -314,6 +314,46 @@ fun SourcesSheet(onDismiss: () -> Unit) {
                 license = "Washington State Department of Transportation"
             )
             SourceRow(
+                name = "California Highway Patrol (CHP) Statewide CAD Stream",
+                latency = "Real-time live XML CAD dispatches across all California counties",
+                license = "State of California / California Highway Patrol"
+            )
+            SourceRow(
+                name = "Utah Department of Transportation (UDOT Events Statewide)",
+                latency = "Real-time traffic closures, crashes & hazards across Utah",
+                license = "Utah Department of Transportation (UDOT)"
+            )
+            SourceRow(
+                name = "Kentucky Emergency Management (KYEM Incident Feed)",
+                latency = "Real-time emergency response & road damage reports statewide in KY",
+                license = "Commonwealth of Kentucky Public Data"
+            )
+            SourceRow(
+                name = "North Carolina DOT (NCDOT TIMS / DriveNC Statewide)",
+                latency = "Live traffic incident management system across North Carolina",
+                license = "North Carolina Department of Transportation"
+            )
+            SourceRow(
+                name = "Florida 511 (FL511 Statewide Live Traffic & Incidents)",
+                latency = "Real-time crashes, obstructions & emergency events in FL",
+                license = "Florida Department of Transportation (FDOT)"
+            )
+            SourceRow(
+                name = "Tallahassee & Leon County 911 CAD Live Incidents",
+                latency = "Real-time 911 CAD dispatches for Tallahassee and Leon County, FL",
+                license = "City of Tallahassee & Leon County Public Safety"
+            )
+            SourceRow(
+                name = "Iowa Department of Transportation (Iowa 511 Events)",
+                latency = "Real-time travel advisories, closures & hazards across Iowa",
+                license = "Iowa Department of Transportation (Iowa 511)"
+            )
+            SourceRow(
+                name = "Las Vegas Metropolitan Police Department (LVMPD Crimes)",
+                latency = "Weekly public crime dispatches in Las Vegas & Clark County, NV",
+                license = "City of Las Vegas & Clark County Open Data"
+            )
+            SourceRow(
                 name = "GDACS Worldwide Disaster Alerts",
                 latency = "Updated every 6 minutes for global civil protection",
                 license = "United Nations & European Commission"

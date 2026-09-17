@@ -4,16 +4,19 @@ import android.util.Log
 import com.neighborhood.safestreet.common.models.Incident
 import com.neighborhood.safestreet.common.models.IncidentCategory
 import com.neighborhood.safestreet.common.models.ProvenanceType
+import com.neighborhood.safestreet.common.util.GeoUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import org.w3c.dom.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.TimeUnit
+import javax.xml.parsers.DocumentBuilderFactory
 
 class OpenDataClient {
     private val client = OkHttpClient.Builder()
@@ -2840,20 +2843,54 @@ class OpenDataClient {
     suspend fun fetchArcGisDiscovery(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
         val incidents = mutableListOf<Incident>()
         try {
-            val searchUrl = "https://www.arcgis.com/sharing/rest/search?q=type:%22Feature%20Service%22%20AND%20(tags:%22crime%22%20OR%20tags:%22police%22%20OR%20tags:%22fire%22%20OR%20tags:%22traffic%22%20OR%20tags:%22cad%22)&f=json&num=8"
-            val req = Request.Builder().url(searchUrl).header("User-Agent", "SafeStreetApp/2.0").build()
+            val deltaDeg = (radiusMiles / 69.0).coerceIn(0.2, 1.5)
+            val minLat = String.format(Locale.US, "%.4f", userLat - deltaDeg)
+            val maxLat = String.format(Locale.US, "%.4f", userLat + deltaDeg)
+            val minLon = String.format(Locale.US, "%.4f", userLon - deltaDeg)
+            val maxLon = String.format(Locale.US, "%.4f", userLon + deltaDeg)
+
+            val bboxSearchUrl = "https://www.arcgis.com/sharing/rest/search?q=type:%22Feature%20Service%22%20AND%20(crime%20OR%20police%20OR%20fire%20OR%20traffic%20OR%20cad%20OR%20hazard%20OR%20incident)&bbox=$minLon,$minLat,$maxLon,$maxLat&f=json&num=10"
+            val fallbackSearchUrl = "https://www.arcgis.com/sharing/rest/search?q=type:%22Feature%20Service%22%20AND%20(tags:%22crime%22%20OR%20tags:%22police%22%20OR%20tags:%22fire%22%20OR%20tags:%22traffic%22%20OR%20tags:%22cad%22)&f=json&num=8"
+
             val candidateUrls = mutableListOf<Pair<String, String>>() // url, title
-            client.newCall(req).execute().use { resp ->
+
+            // Try localized bounding box discovery first
+            val searchReq = Request.Builder().url(bboxSearchUrl).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(searchReq).execute().use { resp ->
                 if (resp.isSuccessful) {
-                    val body = resp.body?.string() ?: return@use
+                    val body = resp.body?.string() ?: ""
                     val root = JSONObject(body)
-                    val results = root.optJSONArray("results") ?: return@use
-                    for (i in 0 until results.length()) {
-                        val item = results.getJSONObject(i)
-                        val serviceUrl = item.optString("url")
-                        val title = item.optString("title", "Public Safety Layer")
-                        if (serviceUrl.isNotBlank() && serviceUrl.startsWith("https://")) {
-                            candidateUrls.add(Pair(serviceUrl, title))
+                    val results = root.optJSONArray("results")
+                    if (results != null) {
+                        for (i in 0 until results.length()) {
+                            val item = results.getJSONObject(i)
+                            val serviceUrl = item.optString("url")
+                            val title = item.optString("title", "Local Public Safety Layer")
+                            if (serviceUrl.isNotBlank() && serviceUrl.startsWith("https://")) {
+                                candidateUrls.add(Pair(serviceUrl, title))
+                            }
+                        }
+                    }
+                }
+            }
+
+            // If bbox returned nothing, query nationwide public safety tags
+            if (candidateUrls.isEmpty()) {
+                val fallbackReq = Request.Builder().url(fallbackSearchUrl).header("User-Agent", "SafeStreetApp/2.0").build()
+                client.newCall(fallbackReq).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val body = resp.body?.string() ?: ""
+                        val root = JSONObject(body)
+                        val results = root.optJSONArray("results")
+                        if (results != null) {
+                            for (i in 0 until results.length()) {
+                                val item = results.getJSONObject(i)
+                                val serviceUrl = item.optString("url")
+                                val title = item.optString("title", "Public Safety Layer")
+                                if (serviceUrl.isNotBlank() && serviceUrl.startsWith("https://")) {
+                                    candidateUrls.add(Pair(serviceUrl, title))
+                                }
+                            }
                         }
                     }
                 }
@@ -3009,6 +3046,587 @@ class OpenDataClient {
             }
         } catch (e: Exception) {
             Log.e("OpenDataClient", "Error in Socrata discovery: ${e.message}")
+        }
+        incidents
+    }
+
+    private fun parseChpDate(dateStr: String?, fallback: Long = System.currentTimeMillis()): Long {
+        if (dateStr.isNullOrBlank()) return fallback
+        val formats = listOf(
+            "MMM dd yyyy h:mma",
+            "MMM d yyyy h:mma",
+            "MMM dd yyyy  h:mma",
+            "MMM d yyyy  h:mma",
+            "MMM dd yyyy hh:mma",
+            "yyyy-MM-dd HH:mm:ss"
+        )
+        for (fmt in formats) {
+            try {
+                val sdf = SimpleDateFormat(fmt, Locale.US).apply {
+                    timeZone = TimeZone.getTimeZone("America/Los_Angeles")
+                }
+                val parsed = sdf.parse(dateStr)
+                if (parsed != null) return parsed.time
+            } catch (_: Exception) {}
+        }
+        return fallback
+    }
+
+    // 49. California Highway Patrol (CHP) CAD Live Feed (Real-time CAD XML dispatches statewide across California)
+    suspend fun fetchChpCadIncidents(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "http://media.chp.ca.gov/sa_xml/sa.xml"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val stream = resp.body?.byteStream() ?: return@use
+                    val factory = DocumentBuilderFactory.newInstance()
+                    val builder = factory.newDocumentBuilder()
+                    val doc = builder.parse(stream)
+                    val logNodes = doc.getElementsByTagName("Log")
+                    val now = System.currentTimeMillis()
+
+                    for (i in 0 until logNodes.length) {
+                        val logEl = logNodes.item(i) as? Element ?: continue
+                        val latLonRaw = logEl.getElementsByTagName("LATLON").item(0)?.textContent?.replace("\"", "")?.trim() ?: ""
+                        if (!latLonRaw.contains(":")) continue
+                        val parts = latLonRaw.split(":")
+                        if (parts.size != 2) continue
+                        val latVal = parts[0].toDoubleOrNull() ?: continue
+                        val lonVal = parts[1].toDoubleOrNull() ?: continue
+                        val lat = latVal / 1000000.0
+                        val lon = -(Math.abs(lonVal) / 1000000.0)
+                        if (lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+
+                        val dist = GeoUtils.calculateDistanceMiles(userLat, userLon, lat, lon)
+                        if (dist > radiusMiles) continue
+
+                        val id = logEl.getAttribute("ID").ifBlank { "chp_$i" }
+                        val logType = logEl.getElementsByTagName("LogType").item(0)?.textContent?.replace("\"", "")?.trim() ?: "Traffic Incident"
+                        val loc = logEl.getElementsByTagName("Location").item(0)?.textContent?.replace("\"", "")?.trim() ?: "Highway"
+                        val area = logEl.getElementsByTagName("Area").item(0)?.textContent?.replace("\"", "")?.trim() ?: "California"
+                        val timeStr = logEl.getElementsByTagName("LogTime").item(0)?.textContent?.replace("\"", "")?.trim() ?: ""
+
+                        val occurredAt = parseChpDate(timeStr, now)
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val category = when {
+                            logType.contains("Collision", ignoreCase = true) || logType.contains("Crash", ignoreCase = true) ||
+                                logType.startsWith("1182") || logType.startsWith("1183") || logType.startsWith("1179") -> IncidentCategory.VEHICLE_CRASH
+                            logType.contains("Fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
+                            logType.contains("Hazard", ignoreCase = true) || logType.startsWith("1125") ||
+                                logType.contains("Debris", ignoreCase = true) || logType.contains("Closure", ignoreCase = true) ||
+                                logType.contains("Spill", ignoreCase = true) -> IncidentCategory.ROAD_HAZARD
+                            logType.contains("Wrong Way", ignoreCase = true) || logType.contains("Pursuit", ignoreCase = true) ||
+                                logType.contains("Hit and Run", ignoreCase = true) || logType.contains("Pedestrian", ignoreCase = true) ||
+                                logType.contains("Animal", ignoreCase = true) -> IncidentCategory.POLICE_ACTIVITY
+                            else -> IncidentCategory.HAZARD_CONDITION
+                        }
+
+                        incidents.add(
+                            Incident(
+                                id = "chp_${Math.abs(id.hashCode())}",
+                                category = category,
+                                subcategory = logType,
+                                title = "$logType: $loc",
+                                description = "California Highway Patrol CAD dispatch in $area: $logType at $loc.",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$loc, $area, CA",
+                                sourceId = "chp_cad_live",
+                                agency = "California Highway Patrol (CHP CAD)",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "State of California / CHP Public CAD Stream",
+                                isHighPriority = category == IncidentCategory.VEHICLE_CRASH || category == IncidentCategory.FIRE_SMOKE
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching CHP CAD incidents: ${e.message}")
+        }
+        incidents
+    }
+
+    // 50. Utah Department of Transportation (UDOT Events - Statewide Utah)
+    suspend fun fetchUtahRoadEvents(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services6.arcgis.com/KaHXE9OkiB9e63uE/arcgis/rest/services/UDOT_Events/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val feat = features.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: Double.NaN
+                        val lon = geom?.optDouble("x", Double.NaN) ?: Double.NaN
+                        if (lat.isNaN() || lon.isNaN() || lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+
+                        val dist = GeoUtils.calculateDistanceMiles(userLat, userLon, lat, lon)
+                        if (dist > radiusMiles) continue
+
+                        val eventType = attr.optString("EventType", attr.optString("EventCategory", "Road Incident"))
+                        val desc = attr.optString("Description", "")
+                        val loc = attr.optString("Location", "Utah Highway")
+                        val county = attr.optString("County", "UT")
+
+                        val rawTime = attr.optLong("LastUpdated", 0L)
+                        val occurredAt = if (rawTime in 1_000_000_000L..9_999_999_999L) rawTime * 1000L else if (rawTime > 0) rawTime else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val category = when {
+                            eventType.contains("crash", ignoreCase = true) || desc.contains("crash", ignoreCase = true) ||
+                                eventType.contains("accident", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
+                            eventType.contains("fire", ignoreCase = true) || desc.contains("fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
+                            eventType.contains("hazard", ignoreCase = true) || eventType.contains("weather", ignoreCase = true) -> IncidentCategory.HAZARD_CONDITION
+                            else -> IncidentCategory.ROAD_HAZARD
+                        }
+
+                        val objId = attr.optLong("OBJECTID", i.toLong())
+                        incidents.add(
+                            Incident(
+                                id = "utah_udot_$objId",
+                                category = category,
+                                subcategory = eventType,
+                                title = "$eventType: $loc",
+                                description = "Utah DOT Event ($county County): ${desc.take(280).ifBlank { "$eventType on $loc." }}",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$loc, $county, UT",
+                                sourceId = "utah_udot_events",
+                                agency = "Utah Department of Transportation (UDOT)",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "State of Utah Open Data",
+                                isHighPriority = category == IncidentCategory.VEHICLE_CRASH || category == IncidentCategory.FIRE_SMOKE
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Utah UDOT events: ${e.message}")
+        }
+        incidents
+    }
+
+    // 51. Kentucky Emergency Management Incident Reporter (KYEM Feed - Statewide Kentucky)
+    suspend fun fetchKentuckyKyemIncidents(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services2.arcgis.com/CcI36Pduqd0OR4W9/arcgis/rest/services/KYTC_-_KIR_Incident_Reporter_KYEM_Feed_Public/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val feat = features.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = attr.optDouble("Beginning_Latitude_Current", Double.NaN).takeIf { !it.isNaN() }
+                            ?: geom?.optDouble("y", Double.NaN)
+                            ?: Double.NaN
+                        val lon = attr.optDouble("Beginning_Longitude_Current", Double.NaN).takeIf { !it.isNaN() }
+                            ?: geom?.optDouble("x", Double.NaN)
+                            ?: Double.NaN
+                        if (lat.isNaN() || lon.isNaN() || lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+
+                        val dist = GeoUtils.calculateDistanceMiles(userLat, userLon, lat, lon)
+                        if (dist > radiusMiles) continue
+
+                        val incType = attr.optString("Incident_Type", attr.optString("EOC_Damage_Cause", "Emergency Response"))
+                        val road = attr.optString("Road_Name", attr.optString("Route_Label", "Kentucky Highway"))
+                        val county = attr.optString("County_Name", "KY")
+                        val desc = attr.optString("Comments", attr.optString("Impact", "Emergency incident reported."))
+
+                        val rawTime = attr.optLong("Incident_Date", attr.optLong("EditDate", now))
+                        val occurredAt = if (rawTime > 0) rawTime else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val category = when {
+                            incType.contains("Flood", ignoreCase = true) || incType.contains("Rain", ignoreCase = true) -> IncidentCategory.WEATHER_HAZARD
+                            incType.contains("Crash", ignoreCase = true) || incType.contains("Collision", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
+                            incType.contains("Fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
+                            else -> IncidentCategory.HAZARD_CONDITION
+                        }
+
+                        val objId = attr.optLong("ObjectId", i.toLong())
+                        incidents.add(
+                            Incident(
+                                id = "kyem_$objId",
+                                category = category,
+                                subcategory = incType,
+                                title = "$incType: $road",
+                                description = "Kentucky Emergency Management ($county County): ${desc.take(280)}",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$road, $county, KY",
+                                sourceId = "kentucky_kyem_incidents",
+                                agency = "Kentucky Emergency Management (KYEM)",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "Commonwealth of Kentucky Public Data",
+                                isHighPriority = category == IncidentCategory.WEATHER_HAZARD || category == IncidentCategory.FIRE_SMOKE
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Kentucky KYEM incidents: ${e.message}")
+        }
+        incidents
+    }
+
+    // 52. North Carolina Department of Transportation (NCDOT TIMS Incidents - Statewide NC)
+    suspend fun fetchNorthCarolinaTimsIncidents(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services.arcgis.com/NuWFvHYDMVmmxMeM/arcgis/rest/services/NCDOT_TIMSIncidentsByIncidentType/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val feat = features.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("Latitude", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("Longitude", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN() || lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+
+                        val dist = GeoUtils.calculateDistanceMiles(userLat, userLon, lat, lon)
+                        if (dist > radiusMiles) continue
+
+                        val eventType = attr.optString("EventType", attr.optString("EventSubType", "Traffic Incident"))
+                        val loc = attr.optString("Location", attr.optString("Road", "North Carolina Roadway"))
+                        val county = attr.optString("CountyName", "NC")
+                        val condition = attr.optString("Condition", "")
+
+                        val rawTime = attr.optLong("LastUpdateDateTime", attr.optLong("StartDateTime", now))
+                        val occurredAt = if (rawTime > 0) rawTime else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val category = when {
+                            eventType.contains("accident", ignoreCase = true) || eventType.contains("crash", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
+                            eventType.contains("fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
+                            eventType.contains("closure", ignoreCase = true) -> IncidentCategory.ROAD_HAZARD
+                            else -> IncidentCategory.HAZARD_CONDITION
+                        }
+
+                        val objId = attr.optLong("OBJECTID", i.toLong())
+                        incidents.add(
+                            Incident(
+                                id = "ncdot_tims_$objId",
+                                category = category,
+                                subcategory = eventType,
+                                title = "$eventType: $condition".trim().removeSuffix(":"),
+                                description = "NCDOT Traffic Incident Management ($county County): ${loc.take(280)}",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$loc, $county, NC",
+                                sourceId = "ncdot_tims_incidents",
+                                agency = "North Carolina DOT (TIMS / DriveNC)",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "State of North Carolina Public Data",
+                                isHighPriority = category == IncidentCategory.VEHICLE_CRASH || category == IncidentCategory.FIRE_SMOKE
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching NCDOT TIMS incidents: ${e.message}")
+        }
+        incidents
+    }
+
+    // 53. Florida 511 Statewide Real-Time Traffic & Incidents (FL511 - Statewide Florida)
+    suspend fun fetchFlorida511Incidents(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services8.arcgis.com/qhgIImgl4UmEEyAS/arcgis/rest/services/FL_511_Traffic_Data/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val feat = features.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("LATITUDE", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("LONGITUDE", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN() || lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+
+                        val dist = GeoUtils.calculateDistanceMiles(userLat, userLon, lat, lon)
+                        if (dist > radiusMiles) continue
+
+                        val incType = attr.optString("TYPE", "Traffic Incident")
+                        val road = attr.optString("ROADWAY", "Florida Highway")
+                        val county = attr.optString("COUNTY", "FL")
+                        val updatedStr = attr.optString("UPDATED")
+                        val occurredAt = parseDate(updatedStr, now)
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val category = when {
+                            incType.contains("crash", ignoreCase = true) || incType.contains("accident", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
+                            incType.contains("fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
+                            else -> IncidentCategory.ROAD_HAZARD
+                        }
+
+                        val fid = attr.optLong("FID", i.toLong())
+                        incidents.add(
+                            Incident(
+                                id = "fl511_$fid",
+                                category = category,
+                                subcategory = incType,
+                                title = "$incType: $road",
+                                description = "Florida 511 Incident ($county): $incType on $road.",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$road, $county, FL",
+                                sourceId = "florida_511_traffic",
+                                agency = "Florida Department of Transportation (FL511)",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "FDOT Open Data",
+                                isHighPriority = category == IncidentCategory.VEHICLE_CRASH
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching FL511 incidents: ${e.message}")
+        }
+        incidents
+    }
+
+    // 54. Tallahassee & Leon County 911 CAD Live Incidents (Leon County FL CAD)
+    suspend fun fetchLeonCountyCadCalls(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://intervector.leoncountyfl.gov/intervector/rest/services/MapServices/LCEM_Local_Traffic_Conditions_D_WM/MapServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val feat = features.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: attr.optDouble("Latitude", Double.NaN)
+                        val lon = geom?.optDouble("x", Double.NaN) ?: attr.optDouble("Longitude", Double.NaN)
+                        if (lat.isNaN() || lon.isNaN() || lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+
+                        val dist = GeoUtils.calculateDistanceMiles(userLat, userLon, lat, lon)
+                        if (dist > radiusMiles) continue
+
+                        val agency = attr.optString("AgencyName", "Tallahassee Police / Leon CAD")
+                        val typeDesc = attr.optString("IncidentTypeDescription", "911 CAD Dispatch")
+                        val loc = attr.optString("Location", "Leon County, FL")
+                        val locName = attr.optString("LocationName", "")
+                        val dateEpoch = attr.optLong("IncidentDate", now)
+                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val category = when {
+                            typeDesc.contains("COLLISION", ignoreCase = true) || typeDesc.contains("CRASH", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
+                            typeDesc.contains("FIRE", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
+                            typeDesc.contains("POLICE", ignoreCase = true) || typeDesc.contains("FIGHT", ignoreCase = true) ||
+                                typeDesc.contains("THEFT", ignoreCase = true) || typeDesc.contains("ROBBERY", ignoreCase = true) -> IncidentCategory.POLICE_ACTIVITY
+                            else -> IncidentCategory.HAZARD_CONDITION
+                        }
+
+                        val objId = attr.optLong("ObjectID", i.toLong())
+                        val displayLoc = if (locName.isNotBlank()) "$loc ($locName)" else loc
+                        incidents.add(
+                            Incident(
+                                id = "leon_cad_$objId",
+                                category = category,
+                                subcategory = typeDesc,
+                                title = "$typeDesc: $loc",
+                                description = "Live 911 CAD dispatch by $agency at $displayLoc.",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$displayLoc, Tallahassee, FL",
+                                sourceId = "leon_county_cad",
+                                agency = agency,
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "Leon County & City of Tallahassee Public Safety",
+                                isHighPriority = category == IncidentCategory.VEHICLE_CRASH || category == IncidentCategory.FIRE_SMOKE
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Leon County CAD: ${e.message}")
+        }
+        incidents
+    }
+
+    // 55. Iowa Department of Transportation (Iowa 511 Events & Incidents - Statewide IA)
+    suspend fun fetchIowa511Incidents(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services.arcgis.com/8lRhdTsQyJpO52F1/arcgis/rest/services/511Incidents_RestAreas/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val feat = features.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: Double.NaN
+                        val lon = geom?.optDouble("x", Double.NaN) ?: Double.NaN
+                        if (lat.isNaN() || lon.isNaN() || lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+
+                        val dist = GeoUtils.calculateDistanceMiles(userLat, userLon, lat, lon)
+                        if (dist > radiusMiles) continue
+
+                        val headline = attr.optString("headline", attr.optString("STYLE", "Iowa 511 Alert"))
+                        val route = attr.optString("Route", "Highway")
+                        val cause = attr.optString("cause", "")
+                        val dateEpoch = attr.optLong("CreationDa", attr.optLong("EditDate", now))
+                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val category = when {
+                            headline.contains("crash", ignoreCase = true) || cause.contains("crash", ignoreCase = true) ||
+                                headline.contains("accident", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
+                            headline.contains("fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
+                            headline.contains("weather", ignoreCase = true) || headline.contains("flood", ignoreCase = true) -> IncidentCategory.WEATHER_HAZARD
+                            else -> IncidentCategory.ROAD_HAZARD
+                        }
+
+                        val objId = attr.optLong("OBJECTID", i.toLong())
+                        incidents.add(
+                            Incident(
+                                id = "iowa_511_$objId",
+                                category = category,
+                                subcategory = "511 Travel Event",
+                                title = headline,
+                                description = "Iowa DOT 511: $headline ($cause) on $route.",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$route, Iowa",
+                                sourceId = "iowa_511_incidents",
+                                agency = "Iowa Department of Transportation (Iowa 511)",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "State of Iowa Public Service",
+                                isHighPriority = category == IncidentCategory.VEHICLE_CRASH
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching Iowa 511: ${e.message}")
+        }
+        incidents
+    }
+
+    // 56. Las Vegas Metropolitan Police Department (LVMPD NIBRS Public Crime Dispatches)
+    suspend fun fetchLasVegasCrimes(userLat: Double, userLon: Double, radiusMiles: Double = 25.0): List<Incident> = withContext(Dispatchers.IO) {
+        val incidents = mutableListOf<Incident>()
+        try {
+            val url = "https://services.arcgis.com/jjSk6t82vIntwDbs/arcgis/rest/services/Weekly_Public_Crimes/FeatureServer/0/query?geometryType=esriGeometryPoint&geometry=$userLon,$userLat&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=$radiusMiles&units=esriSRUnit_StatuteMile&outSR=4326&outFields=*&f=json&resultRecordCount=25"
+            val req = Request.Builder().url(url).header("User-Agent", "SafeStreetApp/2.0").build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features") ?: return@use
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until features.length()) {
+                        val feat = features.getJSONObject(i)
+                        val attr = feat.optJSONObject("attributes") ?: continue
+                        val geom = feat.optJSONObject("geometry")
+                        val lat = geom?.optDouble("y", Double.NaN) ?: Double.NaN
+                        val lon = geom?.optDouble("x", Double.NaN) ?: Double.NaN
+                        if (lat.isNaN() || lon.isNaN() || lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+
+                        val dist = GeoUtils.calculateDistanceMiles(userLat, userLon, lat, lon)
+                        if (dist > radiusMiles) continue
+
+                        val offense = attr.optString("OffenseCategory", attr.optString("OffenseGroup", "Police Incident"))
+                        val loc = attr.optString("Location", "Las Vegas Metro")
+                        val area = attr.optString("Area_Command", "LVMPD")
+                        val eventNum = attr.optString("Event_Number", "")
+                        val dateEpoch = attr.optLong("ReportedOn", now)
+                        val occurredAt = if (dateEpoch > 0) dateEpoch else now
+                        if (now - occurredAt !in -3600000L..86400000L) continue
+
+                        val category = IncidentCategory.POLICE_ACTIVITY
+                        val objId = attr.optLong("OBJECTID", i.toLong())
+                        incidents.add(
+                            Incident(
+                                id = "lvmpd_$objId",
+                                category = category,
+                                subcategory = offense,
+                                title = offense,
+                                description = "LVMPD reported offense: $offense at $loc ($area Command). Event: $eventNum",
+                                occurredAtEpochMs = occurredAt,
+                                sourceUpdatedAtEpochMs = occurredAt,
+                                receivedAtEpochMs = now,
+                                latitude = lat,
+                                longitude = lon,
+                                displayAddress = "$loc, Las Vegas, NV",
+                                sourceId = "lvmpd_crimes",
+                                agency = "Las Vegas Metropolitan Police Department (LVMPD)",
+                                provenance = ProvenanceType.OFFICIAL_LIVE,
+                                licenseInfo = "City of Las Vegas & Clark County Open Data",
+                                isHighPriority = false
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OpenDataClient", "Error fetching LVMPD crimes: ${e.message}")
         }
         incidents
     }

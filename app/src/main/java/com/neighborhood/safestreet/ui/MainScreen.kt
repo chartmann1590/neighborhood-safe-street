@@ -54,6 +54,8 @@ fun MainScreen(
     val showReportDialog by viewModel.showReportDialog.collectAsStateWithLifecycle()
     val showWearDialog by viewModel.showWearDialog.collectAsStateWithLifecycle()
     val showSourcesDialog by viewModel.showSourcesDialog.collectAsStateWithLifecycle()
+    val selectedRange by viewModel.selectedRange.collectAsStateWithLifecycle()
+    val effectiveRangeMiles by viewModel.effectiveRangeMiles.collectAsStateWithLifecycle()
 
     // If user opened the fullscreen map, render the interactive OSM map screen
     if (showFullscreenMap) {
@@ -61,6 +63,9 @@ fun MainScreen(
             incidents = incidents,
             userLatitude = userLat,
             userLongitude = userLon,
+            radiusMiles = effectiveRangeMiles,
+            selectedRange = selectedRange,
+            onRangeSelected = { viewModel.setRadarRange(it) },
             initialFocusedIncident = focusedIncidentForMap,
             onBack = { viewModel.closeFullscreenMap() },
             onConfirmIncident = { viewModel.confirmIncident(it) },
@@ -355,6 +360,8 @@ fun MainScreen(
                                 incidents = incidents,
                                 userLatitude = userLat,
                                 userLongitude = userLon,
+                                selectedRange = selectedRange,
+                                onRangeSelected = { viewModel.setRadarRange(it) },
                                 onExpandMap = { viewModel.openFullscreenMap() },
                                 onIncidentSelected = { inc -> viewModel.openFullscreenMap(inc) }
                             )
@@ -364,17 +371,42 @@ fun MainScreen(
 
                     if (incidents.isEmpty()) {
                         item {
-                            Box(
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 32.dp),
-                                contentAlignment = Alignment.Center
+                                    .padding(vertical = 28.dp, horizontal = 16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text(
-                                    text = "No incidents match the active filters.",
-                                    color = TextMuted,
-                                    fontSize = 13.sp
+                                Icon(
+                                    Icons.Default.GpsFixed,
+                                    contentDescription = null,
+                                    tint = AccentCyan,
+                                    modifier = Modifier.size(32.dp)
                                 )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "No incidents reported within ${effectiveRangeMiles.toInt()} miles",
+                                    color = TextPrimary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Radar zone is clear. Expand to 25 mi or report an observation.",
+                                    color = TextMuted,
+                                    fontSize = 12.sp,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                                if (selectedRange != RadarRangeOption.RANGE_25MI) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Button(
+                                        onClick = { viewModel.setRadarRange(RadarRangeOption.RANGE_25MI) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceVariant),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text("Expand Radius to 25 mi", color = AccentCyan, fontSize = 12.sp)
+                                    }
+                                }
                             }
                         }
                     } else {

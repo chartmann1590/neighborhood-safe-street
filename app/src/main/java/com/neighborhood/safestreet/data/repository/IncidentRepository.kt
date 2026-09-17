@@ -1,10 +1,14 @@
 package com.neighborhood.safestreet.data.repository
 
+import android.util.Log
 import com.neighborhood.safestreet.common.models.Incident
 import com.neighborhood.safestreet.common.models.IncidentCategory
 import com.neighborhood.safestreet.common.models.ProvenanceType
 import com.neighborhood.safestreet.data.api.OpenDataClient
 import com.neighborhood.safestreet.data.firebase.FirestoreCommunityRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,20 +26,41 @@ class IncidentRepository(
     private val _lastSyncTimestamp = MutableStateFlow(System.currentTimeMillis())
     val lastSyncTimestamp: StateFlow<Long> = _lastSyncTimestamp.asStateFlow()
 
-    suspend fun refresh() {
+    suspend fun refresh(userLat: Double = 42.8249, userLon: Double = -73.9270) = coroutineScope {
         _isLoading.value = true
         try {
-            // Strictly real data from official municipal 911/CAD feeds and live community Firestore
-            val officialSeattle = openDataClient.fetchSeattleFireIncidents()
-            val officialSF = openDataClient.fetchSanFranciscoDispatch()
-            val officialGdacs = openDataClient.fetchGdacsHazards()
-            val community = communityRepository.fetchActiveCommunityReports()
+            // Concurrently query official feeds across all major US municipalities & national agencies
+            val jobs = listOf(
+                async(Dispatchers.IO) { openDataClient.fetchNyStateIncidents(userLat, userLon) },
+                async(Dispatchers.IO) { openDataClient.fetchNoaaAlerts(userLat, userLon) },
+                async(Dispatchers.IO) { openDataClient.fetchUsgsEarthquakes() },
+                async(Dispatchers.IO) { openDataClient.fetchNycArrests() },
+                async(Dispatchers.IO) { openDataClient.fetchChicagoCrimes() },
+                async(Dispatchers.IO) { openDataClient.fetchSeattleFireIncidents() },
+                async(Dispatchers.IO) { openDataClient.fetchSanFranciscoDispatch() },
+                async(Dispatchers.IO) { openDataClient.fetchLosAngelesCrimes() },
+                async(Dispatchers.IO) { openDataClient.fetchMontgomeryCountyIncidents() },
+                async(Dispatchers.IO) { openDataClient.fetchDallasCalls() },
+                async(Dispatchers.IO) { openDataClient.fetchBuffaloCrimes() },
+                async(Dispatchers.IO) { openDataClient.fetchCincinnatiCalls() },
+                async(Dispatchers.IO) { openDataClient.fetchAustinCrimes() },
+                async(Dispatchers.IO) { openDataClient.fetchPhillyCrimes() },
+                async(Dispatchers.IO) { openDataClient.fetchNypdComplaints() },
+                async(Dispatchers.IO) { openDataClient.fetchDcPoliceIncidents() },
+                async(Dispatchers.IO) { openDataClient.fetchKansasCityCrimes() },
+                async(Dispatchers.IO) { openDataClient.fetchSocrataDiscovery(userLat, userLon) },
+                async(Dispatchers.IO) { openDataClient.fetchGdacsHazards() },
+                async(Dispatchers.IO) { communityRepository.fetchActiveCommunityReports() }
+            )
 
             val combined = mutableListOf<Incident>()
-            combined.addAll(officialSeattle)
-            combined.addAll(officialSF)
-            combined.addAll(officialGdacs)
-            combined.addAll(community)
+            for (job in jobs) {
+                try {
+                    combined.addAll(job.await())
+                } catch (e: Exception) {
+                    Log.w("IncidentRepository", "Individual feed fetch error: ${e.message}")
+                }
+            }
 
             // Deduplicate by real incident ID & sort by occurrence timestamp descending
             val sorted = combined

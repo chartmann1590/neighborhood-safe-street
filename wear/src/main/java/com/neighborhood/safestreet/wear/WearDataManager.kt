@@ -27,8 +27,11 @@ import com.neighborhood.safestreet.common.serialization.JsonHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -36,6 +39,7 @@ import kotlinx.serialization.encodeToString
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import kotlin.math.*
 
@@ -58,21 +62,6 @@ class WearDataManager(
         .readTimeout(10, TimeUnit.SECONDS)
         .build()
 
-    private val _incidents = MutableStateFlow<List<Incident>>(emptyList())
-    val incidents: StateFlow<List<Incident>> = _incidents.asStateFlow()
-
-    private val _connectionMode = MutableStateFlow(WearConnectionMode.SEARCHING)
-    val connectionMode: StateFlow<WearConnectionMode> = _connectionMode.asStateFlow()
-
-    private val _statusMessage = MutableStateFlow("Initializing...")
-    val statusMessage: StateFlow<String> = _statusMessage.asStateFlow()
-
-    private val _latestAlert = MutableStateFlow<String?>(null)
-    val latestAlert: StateFlow<String?> = _latestAlert.asStateFlow()
-
-    private val _activeAlertIncident = MutableStateFlow<Incident?>(null)
-    val activeAlertIncident: StateFlow<Incident?> = _activeAlertIncident.asStateFlow()
-
     // Watch Location & Phone Synced Location State
     private val _watchLocation = MutableStateFlow<Pair<Double, Double>?>(null)
     val watchLocation: StateFlow<Pair<Double, Double>?> = _watchLocation.asStateFlow()
@@ -84,7 +73,7 @@ class WearDataManager(
     val hasLocationPermission: StateFlow<Boolean> = _hasLocationPermission.asStateFlow()
 
     fun getEffectiveLocation(): Pair<Double, Double> {
-        return _watchLocation.value ?: _phoneLocation.value ?: Pair(47.6062, -122.3321)
+        return _watchLocation.value ?: _phoneLocation.value ?: Pair(42.8249, -73.9270)
     }
 
     fun calculateDistanceMiles(targetLat: Double, targetLon: Double): Double {
@@ -98,6 +87,45 @@ class WearDataManager(
         val c = 2 * atan2(sqrt(a), sqrt(1 - a))
         return earthRadiusMiles * c
     }
+
+    private val _incidents = MutableStateFlow<List<Incident>>(emptyList())
+    val incidents: StateFlow<List<Incident>> = _incidents.asStateFlow()
+
+    private val _radiusMiles = MutableStateFlow(5.0)
+    val radiusMiles: StateFlow<Double> = _radiusMiles.asStateFlow()
+
+    fun setRadiusMiles(radius: Double) {
+        _radiusMiles.value = radius
+    }
+
+    // Strictly incidents within the active radius
+    val filteredIncidents: StateFlow<List<Incident>> = combine(
+        _incidents,
+        _radiusMiles,
+        _watchLocation,
+        _phoneLocation
+    ) { list, radius, _, _ ->
+        val now = System.currentTimeMillis()
+        val maxAgeMs = 24 * 60 * 60 * 1000L
+        list.filter {
+            val ageMs = now - it.occurredAtEpochMs
+            val isRecent24h = ageMs in -3600000L..maxAgeMs && !it.isExpired
+            val withinRadius = calculateDistanceMiles(it.latitude, it.longitude) <= radius
+            isRecent24h && withinRadius
+        }
+    }.stateIn(coroutineScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _connectionMode = MutableStateFlow(WearConnectionMode.SEARCHING)
+    val connectionMode: StateFlow<WearConnectionMode> = _connectionMode.asStateFlow()
+
+    private val _statusMessage = MutableStateFlow("Initializing...")
+    val statusMessage: StateFlow<String> = _statusMessage.asStateFlow()
+
+    private val _latestAlert = MutableStateFlow<String?>(null)
+    val latestAlert: StateFlow<String?> = _latestAlert.asStateFlow()
+
+    private val _activeAlertIncident = MutableStateFlow<Incident?>(null)
+    val activeAlertIncident: StateFlow<Incident?> = _activeAlertIncident.asStateFlow()
 
     fun checkAndFetchLocation() {
         try {
@@ -139,6 +167,7 @@ class WearDataManager(
                     try {
                         val packet = JsonHelper.json.decodeFromString<WearSyncPacket>(json)
                         _incidents.value = packet.activeIncidents
+                        _radiusMiles.value = packet.radiusMiles
                         _connectionMode.value = WearConnectionMode.BLUETOOTH_PHONE
                         _statusMessage.value = "Phone Linked (${packet.activeIncidents.size} alerts)"
                         val uLat = packet.userLatitude
@@ -213,51 +242,113 @@ class WearDataManager(
 
     private suspend fun fetchDirectOpenData() = withContext(Dispatchers.IO) {
         val list = mutableListOf<Incident>()
+        val (currentLat, currentLon) = getEffectiveLocation()
+        val now = System.currentTimeMillis()
+
         try {
-            // Standalone Direct Fallback: Query Seattle Fire Live CAD via watch Internet
-            val url = "https://data.seattle.gov/resource/kzjm-xkqj.json?\$limit=10&\$order=datetime%20DESC"
-            val req = Request.Builder().url(url).build()
-            okHttpClient.newCall(req).execute().use { resp ->
+            // 1. Standalone Direct Fallback: Query NOAA National Weather Service Active Alerts for watch GPS position
+            val noaaUrl = "https://api.weather.gov/alerts/active?point=${String.format(java.util.Locale.US, "%.4f", currentLat)},${String.format(java.util.Locale.US, "%.4f", currentLon)}"
+            val reqNoaa = Request.Builder().url(noaaUrl).header("User-Agent", "SafeStreetWear/2.0 (contact@safestreet.org)").build()
+            okHttpClient.newCall(reqNoaa).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: ""
+                    val root = JSONObject(body)
+                    val features = root.optJSONArray("features")
+                    if (features != null) {
+                        for (i in 0 until features.length()) {
+                            val f = features.getJSONObject(i)
+                            val props = f.optJSONObject("properties") ?: continue
+                            val event = props.optString("event", "Public Safety Warning")
+                            val area = props.optString("areaDesc", "Nearby Area")
+                            list.add(
+                                Incident(
+                                    id = "wear_noaa_${System.currentTimeMillis()}_$i",
+                                    category = IncidentCategory.WEATHER_HAZARD,
+                                    subcategory = event,
+                                    title = "$event ($area)",
+                                    description = props.optString("headline", "Active emergency alert issued for $area."),
+                                    occurredAtEpochMs = now,
+                                    sourceUpdatedAtEpochMs = now,
+                                    receivedAtEpochMs = now,
+                                    latitude = currentLat,
+                                    longitude = currentLon,
+                                    displayAddress = area.take(40),
+                                    sourceId = "wear_direct_noaa",
+                                    agency = "NOAA / National Weather Service",
+                                    provenance = ProvenanceType.OFFICIAL_LIVE,
+                                    isHighPriority = true
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("WearDataManager", "Direct NOAA fetch error: ${e.message}")
+        }
+
+        try {
+            // 2. Query Regional Public Safety & 511 Events (spatial query around watch GPS position)
+            val radiusMeters = (_radiusMiles.value * 1609.344).toInt().coerceAtLeast(8000)
+            val nysUrl = "https://data.ny.gov/resource/ah74-pg4w.json?\$order=create_time%20DESC&\$where=within_circle(georeference,$currentLat,$currentLon,$radiusMeters)&\$limit=10"
+            val reqNys = Request.Builder().url(nysUrl).header("User-Agent", "SafeStreetWear/2.0").build()
+            okHttpClient.newCall(reqNys).execute().use { resp ->
                 if (resp.isSuccessful) {
                     val body = resp.body?.string() ?: return@use
                     val arr = JSONArray(body)
-                    val now = System.currentTimeMillis()
                     for (i in 0 until arr.length()) {
                         val obj = arr.getJSONObject(i)
-                        val num = obj.optString("incident_number", "$i")
-                        val type = obj.optString("type", "Safety Response")
-                        val addr = obj.optString("address", "Nearby Area")
+                        val eventType = obj.optString("event_type", "Incident").replaceFirstChar { it.uppercase() }
+                        val facility = obj.optString("facility_name", "Local Road")
+                        val county = obj.optString("county", "Area")
+                        val geomCoords = obj.optJSONObject("georeference")?.optJSONArray("coordinates")
+                        val itemLat = obj.optString("latitude").toDoubleOrNull()
+                            ?: (if (geomCoords != null && geomCoords.length() >= 2) geomCoords.optDouble(1) else null)
+                            ?: currentLat
+                        val itemLon = obj.optString("longitude").toDoubleOrNull()
+                            ?: (if (geomCoords != null && geomCoords.length() >= 2) geomCoords.optDouble(0) else null)
+                            ?: currentLon
+                        val org = obj.optString("responding_organization_id", "Public Safety")
+
+                        val category = when {
+                            eventType.contains("crash", ignoreCase = true) || eventType.contains("accident", ignoreCase = true) -> IncidentCategory.VEHICLE_CRASH
+                            eventType.contains("fire", ignoreCase = true) -> IncidentCategory.FIRE_SMOKE
+                            else -> IncidentCategory.ROAD_HAZARD
+                        }
+
                         list.add(
                             Incident(
-                                id = "wear_net_$num",
-                                category = if (type.contains("Fire", ignoreCase = true)) IncidentCategory.FIRE_SMOKE else IncidentCategory.OTHER_SAFETY,
-                                title = type,
-                                description = "Live 911 dispatch at $addr (Fetched directly via watch Wi-Fi/LTE fallback)",
-                                occurredAtEpochMs = now - (i * 5 * 60 * 1000L),
+                                id = "wear_net_nys_${itemLat}_${itemLon}_$i",
+                                category = category,
+                                subcategory = eventType,
+                                title = "$eventType: $facility",
+                                description = "$eventType reported on $facility ($county County)",
+                                occurredAtEpochMs = now - (i * 10 * 60 * 1000L),
                                 sourceUpdatedAtEpochMs = now,
                                 receivedAtEpochMs = now,
-                                latitude = obj.optDouble("latitude", 47.6062),
-                                longitude = obj.optDouble("longitude", -122.3321),
-                                displayAddress = addr,
-                                sourceId = "wear_direct_internet",
-                                agency = "Seattle Fire 911 (Direct)",
+                                latitude = itemLat,
+                                longitude = itemLon,
+                                displayAddress = "$facility, $county Co",
+                                sourceId = "wear_direct_nys",
+                                agency = "$org / NYS 511",
                                 provenance = ProvenanceType.OFFICIAL_LIVE,
-                                isHighPriority = i == 0
+                                isHighPriority = category == IncidentCategory.VEHICLE_CRASH
                             )
                         )
                     }
                 }
             }
         } catch (e: Exception) {
-            Log.w("WearDataManager", "Direct internet fetch error: ${e.message}")
+            Log.w("WearDataManager", "Direct regional fetch error: ${e.message}")
         }
 
-        if (list.isNotEmpty()) {
-            _incidents.value = list
-            _statusMessage.value = "Internet Fallback: ${list.size} alerts"
+        // Filter strictly by watch radius
+        val withinRadius = list.filter { calculateDistanceMiles(it.latitude, it.longitude) <= _radiusMiles.value }
+        _incidents.value = withinRadius
+        if (withinRadius.isNotEmpty()) {
+            _statusMessage.value = "Internet Fallback: ${withinRadius.size} alerts"
         } else {
-            _incidents.value = emptyList()
-            _statusMessage.value = "No live incidents on feed"
+            _statusMessage.value = "Area Clear within ${_radiusMiles.value.toInt()} mi"
         }
     }
 

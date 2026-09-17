@@ -3,6 +3,7 @@ package com.neighborhood.safestreet.ui.components
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -36,8 +37,11 @@ import org.osmdroid.views.overlay.Polygon
 @Composable
 fun FullscreenMapScreen(
     incidents: List<Incident>,
-    userLatitude: Double = 47.6062,
-    userLongitude: Double = -122.3321,
+    userLatitude: Double = 42.8249,
+    userLongitude: Double = -73.9270,
+    radiusMiles: Double = 5.0,
+    selectedRange: RadarRangeOption = RadarRangeOption.RANGE_5MI,
+    onRangeSelected: (RadarRangeOption) -> Unit = {},
     initialFocusedIncident: Incident? = null,
     onBack: () -> Unit,
     onConfirmIncident: (String) -> Unit,
@@ -86,8 +90,9 @@ fun FullscreenMapScreen(
 
                 val userGeo = GeoPoint(userLatitude, userLongitude)
 
-                // User Location Radius Circle (approx 3 miles / 4800m)
-                val circle = Polygon.pointsAsCircle(userGeo, 4800.0)
+                // User Location Radius Circle matching active radius filter
+                val radiusMeters = radiusMiles * 1609.344
+                val circle = Polygon.pointsAsCircle(userGeo, radiusMeters)
                 val polygon = Polygon(mapView).apply {
                     points = circle
                     fillPaint.color = android.graphics.Color.parseColor("#1500E5FF")
@@ -109,15 +114,17 @@ fun FullscreenMapScreen(
                 for (incident in filteredIncidents) {
                     val marker = Marker(mapView).apply {
                         position = GeoPoint(incident.latitude, incident.longitude)
-                        val isSelected = selectedIncident?.id == incident.id
-                        icon = MapMarkerHelper.createCategoryMarkerDrawable(mapView.context, incident.category, isSelected)
-                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                        icon = MapMarkerHelper.createCategoryMarkerDrawable(
+                            mapView.context,
+                            incident.category,
+                            selectedIncident?.id == incident.id
+                        )
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                         title = incident.title
                         snippet = incident.displayAddress
-
-                        setOnMarkerClickListener { _, _ ->
+                        setOnMarkerClickListener { m, _ ->
                             selectedIncident = incident
-                            mapView.controller.animateTo(position)
+                            mapView.controller.animateTo(m.position)
                             true
                         }
                     }
@@ -134,17 +141,18 @@ fun FullscreenMapScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // 2. Top Header Bar & Category Filter Chips
+        // 2. Top Header Overlay with Back Button, Radius Chips & Category Chips
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(DarkSurface.copy(alpha = 0.94f))
                 .statusBarsPadding()
-                .padding(bottom = 8.dp)
+                .padding(horizontal = 8.dp, vertical = 6.dp)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(DarkBackground.copy(alpha = 0.92f))
                     .padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -160,10 +168,34 @@ fun FullscreenMapScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "${filteredIncidents.size} incidents plotted • Free OpenStreetMap",
+                        text = "${filteredIncidents.size} incidents within ${radiusMiles.toInt()} mi • Free OSM",
                         color = TextMuted,
                         fontSize = 11.sp
                     )
+                }
+
+                // Range Selector Chips on Map
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    listOf(RadarRangeOption.RANGE_1MI, RadarRangeOption.RANGE_5MI, RadarRangeOption.RANGE_25MI).forEach { opt ->
+                        val isSelected = selectedRange == opt
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isSelected) AccentCyan else DarkSurfaceVariant)
+                                .clickable { onRangeSelected(opt) }
+                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = opt.label,
+                                color = if (isSelected) DarkBackground else TextSecondary,
+                                fontSize = 9.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
                 }
 
                 IconButton(
@@ -175,11 +207,13 @@ fun FullscreenMapScreen(
                 }
             }
 
+            Spacer(modifier = Modifier.height(4.dp))
+
             // Category Filter Chips
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 item {
@@ -190,7 +224,7 @@ fun FullscreenMapScreen(
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = AccentCyan,
                             selectedLabelColor = DarkBackground,
-                            containerColor = DarkBackground,
+                            containerColor = DarkBackground.copy(alpha = 0.85f),
                             labelColor = TextSecondary
                         )
                     )
@@ -205,7 +239,7 @@ fun FullscreenMapScreen(
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = AccentCyan,
                             selectedLabelColor = DarkBackground,
-                            containerColor = DarkBackground,
+                            containerColor = DarkBackground.copy(alpha = 0.85f),
                             labelColor = TextSecondary
                         )
                     )
@@ -220,41 +254,34 @@ fun FullscreenMapScreen(
             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(14.dp)
+                .padding(16.dp)
                 .navigationBarsPadding()
         ) {
-            val incident = activeIncident
-            if (incident != null) {
+            if (activeIncident != null) {
+                val inc = activeIncident
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = DarkSurface),
                     shape = RoundedCornerShape(16.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.5.dp, CardBorder),
+                    colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                    border = CardDefaults.outlinedCardBorder().copy(
+                        brush = androidx.compose.ui.graphics.SolidColor(PrimaryBlue)
+                    ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
+                    Column(modifier = Modifier.padding(16.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val badgeColor = when (incident.provenance) {
-                                ProvenanceType.OFFICIAL_LIVE -> AlertRed
-                                ProvenanceType.OFFICIAL_DELAYED -> WarningYellow
-                                ProvenanceType.COMMUNITY_CONFIRMED -> SafeGreen
-                                ProvenanceType.COMMUNITY_UNVERIFIED -> AccentCyan
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(badgeColor.copy(alpha = 0.2f))
-                                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                            Badge(
+                                containerColor = if (inc.provenance == ProvenanceType.OFFICIAL_LIVE) SafeGreen.copy(alpha = 0.2f) else DarkSurfaceVariant,
+                                contentColor = if (inc.provenance == ProvenanceType.OFFICIAL_LIVE) SafeGreen else TextSecondary
                             ) {
                                 Text(
-                                    text = incident.provenance.label,
-                                    color = badgeColor,
+                                    inc.provenance.label,
                                     fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                                 )
                             }
 
@@ -262,65 +289,60 @@ fun FullscreenMapScreen(
                                 onClick = { selectedIncident = null },
                                 modifier = Modifier.size(24.dp)
                             ) {
-                                Icon(Icons.Default.Close, contentDescription = "Close", tint = TextMuted, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.Close, contentDescription = "Close", tint = TextMuted)
                             }
-                        }
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        Text(
-                            text = incident.title,
-                            color = TextPrimary,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-
-                        Text(
-                            text = incident.displayAddress,
-                            color = TextSecondary,
-                            fontSize = 12.sp
-                        )
-
-                        val desc = incident.description
-                        if (!desc.isNullOrBlank()) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = desc,
-                                color = TextMuted,
-                                fontSize = 11.sp,
-                                maxLines = 3
-                            )
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // Actions for community items
-                        if (incident.provenance == ProvenanceType.COMMUNITY_UNVERIFIED || incident.provenance == ProvenanceType.COMMUNITY_CONFIRMED) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Button(
-                                    onClick = { onConfirmIncident(incident.id) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = SafeGreen),
-                                    modifier = Modifier.weight(1f).height(36.dp),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Confirm (${incident.communityConfirmations})", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
+                        Text(
+                            text = inc.title,
+                            color = TextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
 
-                                OutlinedButton(
-                                    onClick = { onFlagIncident(incident.id, "Flagged from Map") },
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AlertAmber),
-                                    modifier = Modifier.weight(1f).height(36.dp),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Icon(Icons.Default.Flag, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Flag", fontSize = 11.sp)
-                                }
+                        Text(
+                            text = inc.displayAddress,
+                            color = AccentCyan,
+                            fontSize = 12.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Text(
+                            text = inc.description ?: "",
+                            color = TextSecondary,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Action Buttons: Community Confirmation & Flagging
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = { onConfirmIncident(inc.id) },
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Confirm (${inc.communityConfirmations})", fontSize = 11.sp)
+                            }
+
+                            OutlinedButton(
+                                onClick = { onFlagIncident(inc.id, "User reported inaccurate") },
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = AlertAmber),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.Flag, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Flag", fontSize = 11.sp)
                             }
                         }
                     }

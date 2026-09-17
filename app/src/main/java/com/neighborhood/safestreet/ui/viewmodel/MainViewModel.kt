@@ -11,6 +11,7 @@ import com.neighborhood.safestreet.data.alerts.AlertPreferences
 import com.neighborhood.safestreet.data.alerts.AlertPreferencesRepository
 import com.neighborhood.safestreet.data.alerts.SafetyAlertManager
 import com.neighborhood.safestreet.data.repository.IncidentRepository
+import com.neighborhood.safestreet.ui.components.RadarRangeOption
 import com.neighborhood.safestreet.wear.WearableSyncManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -80,6 +81,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
     val userLongitude: StateFlow<Double> = _userLongitude.asStateFlow()
 
+    // Radar & Feed Range Filter (1mi, 5mi, 25mi, Auto)
+    private val _selectedRange = MutableStateFlow(RadarRangeOption.RANGE_5MI)
+    val selectedRange: StateFlow<RadarRangeOption> = _selectedRange.asStateFlow()
+
+    fun setRadarRange(option: RadarRangeOption) {
+        _selectedRange.value = option
+        syncToWear()
+    }
+
+    val effectiveRangeMiles: StateFlow<Double> = combine(
+        _selectedRange,
+        repository.incidents,
+        _userLatitude,
+        _userLongitude
+    ) { range, all, userLat, userLon ->
+        val now = System.currentTimeMillis()
+        val maxAgeMs = 24 * 60 * 60 * 1000L
+        val recentIncidents = all.filter { (now - it.occurredAtEpochMs) in -3600000L..maxAgeMs && !it.isExpired }
+        if (range == RadarRangeOption.RANGE_AUTO) {
+            val minDistance = recentIncidents.minOfOrNull {
+                GeoUtils.calculateDistanceMiles(userLat, userLon, it.latitude, it.longitude)
+            } ?: 5.0
+            when {
+                minDistance <= 1.0 -> 1.0
+                minDistance <= 3.0 -> 3.0
+                minDistance <= 5.0 -> 5.0
+                minDistance <= 10.0 -> 10.0
+                minDistance <= 25.0 -> 25.0
+                else -> 50.0
+            }
+        } else {
+            range.miles
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 5.0)
+
     private val _selectedCategory = MutableStateFlow<IncidentCategory?>(null)
     val selectedCategory: StateFlow<IncidentCategory?> = _selectedCategory.asStateFlow()
 
@@ -110,22 +146,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _showSourcesDialog = MutableStateFlow(false)
     val showSourcesDialog: StateFlow<Boolean> = _showSourcesDialog.asStateFlow()
 
+    // Strictly reports within the active radius, within the last 24 hours, matching category & authority filters
     val filteredIncidents: StateFlow<List<Incident>> = combine(
         repository.incidents,
         _selectedCategory,
         _selectedAuthority,
         _sortOrder,
-        _userLatitude
-    ) { all, category, authority, sort, userLat ->
+        effectiveRangeMiles
+    ) { all, category, authority, sort, maxRadius ->
+        val userLat = _userLatitude.value
         val userLon = _userLongitude.value
+        val now = System.currentTimeMillis()
+        val maxAgeMs = 24 * 60 * 60 * 1000L // Strictly last 24 hours
         val filtered = all.filter { incident ->
+            val ageMs = now - incident.occurredAtEpochMs
+            val isWithin24Hours = ageMs in -3600000L..maxAgeMs && !incident.isExpired
+            val dist = GeoUtils.calculateDistanceMiles(userLat, userLon, incident.latitude, incident.longitude)
+            val withinRadius = dist <= maxRadius
             val matchesCategory = category == null || incident.category == category
             val matchesAuthority = when (authority) {
                 AuthorityFilter.ALL -> true
                 AuthorityFilter.OFFICIAL_ONLY -> incident.provenance == ProvenanceType.OFFICIAL_LIVE || incident.provenance == ProvenanceType.OFFICIAL_DELAYED
                 AuthorityFilter.COMMUNITY_ONLY -> incident.provenance == ProvenanceType.COMMUNITY_UNVERIFIED || incident.provenance == ProvenanceType.COMMUNITY_CONFIRMED
             }
-            matchesCategory && matchesAuthority
+            isWithin24Hours && withinRadius && matchesCategory && matchesAuthority
         }
 
         when (sort) {
@@ -150,11 +194,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refresh() {
         viewModelScope.launch {
-            repository.refresh()
+            val lat = _userLatitude.value
+            val lon = _userLongitude.value
+            repository.refresh(lat, lon)
             val list = repository.incidents.value
             // Check incidents against alert preferences
-            safetyAlertManager.evaluateIncidents(list, _userLatitude.value, _userLongitude.value)
-            // Auto-sync top incidents to watch
+            safetyAlertManager.evaluateIncidents(list, lat, lon)
+            // Auto-sync filtered incidents within radius to watch
             syncToWear()
         }
     }
@@ -186,7 +232,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun sendTestSafetyAlert() {
-        val realIncident = repository.incidents.value.firstOrNull()
+        val realIncident = filteredIncidents.value.firstOrNull() ?: repository.incidents.value.firstOrNull()
         if (realIncident != null) {
             safetyAlertManager.triggerAlertOnRealIncident(listOf(realIncident), _userLatitude.value, _userLongitude.value)
             syncToWear(highPriority = realIncident)
@@ -245,12 +291,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun syncToWear(highPriority: Incident? = null) {
-        val current = repository.incidents.value
+        val radius = effectiveRangeMiles.value
+        // Only incidents within the active radius are synchronized to the wrist companion
+        val currentFiltered = filteredIncidents.value
         wearSyncManager.syncIncidentsToWatch(
-            incidents = current,
+            incidents = currentFiltered,
             highPriority = highPriority,
             userLat = _userLatitude.value,
-            userLon = _userLongitude.value
+            userLon = _userLongitude.value,
+            radiusMiles = radius
         )
     }
 

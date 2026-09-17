@@ -92,7 +92,8 @@ fun WearApp(
     onRequestPermissions: () -> Unit = {},
     onCallEmergency: () -> Unit
 ) {
-    val incidents by dataManager.incidents.collectAsState()
+    val incidents by dataManager.filteredIncidents.collectAsState()
+    val radiusMiles by dataManager.radiusMiles.collectAsState()
     val mode by dataManager.connectionMode.collectAsState()
     val statusMsg by dataManager.statusMessage.collectAsState()
     val activeAlert by dataManager.activeAlertIncident.collectAsState()
@@ -278,13 +279,45 @@ fun WearApp(
             }
 
             item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    listOf(1.0 to "1 mi", 5.0 to "5 mi", 25.0 to "25 mi").forEach { (rad, lbl) ->
+                        val isSelected = kotlin.math.abs(radiusMiles - rad) < 0.1
+                        CompactChip(
+                            onClick = { dataManager.setRadiusMiles(rad) },
+                            label = { Text(lbl, fontSize = 9.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                            colors = ChipDefaults.chipColors(
+                                backgroundColor = if (isSelected) Color(0xFF00E5FF) else Color(0xFF1E293B),
+                                contentColor = if (isSelected) Color.Black else Color.White
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+
+            item {
                 Text(
-                    text = "ACTIVE LOCAL ALERTS (${incidents.size})",
+                    text = "WITHIN ${radiusMiles.toInt()} MI (${incidents.size})",
                     color = Color.LightGray,
                     fontSize = 9.sp,
                     fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(top = 6.dp)
+                    modifier = Modifier.padding(top = 4.dp)
                 )
+            }
+
+            if (incidents.isEmpty()) {
+                item {
+                    Text(
+                        text = "Area clear within ${radiusMiles.toInt()} mi.",
+                        color = Color.Gray,
+                        fontSize = 10.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                    )
+                }
             }
 
             // Incident cards for Wear OS

@@ -69,5 +69,7 @@ data class WearSyncPacket(
     val activeIncidents: List<Incident>,
     val highPriorityAlert: Incident? = null,
     val userLatitude: Double? = null,
-    val userLongitude: Double? = null
+    val userLongitude: Double? = null,
+    val radiusMiles: Double = 5.0
 )
+

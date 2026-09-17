@@ -70,7 +70,8 @@ class WearableSyncManager(
         incidents: List<Incident>,
         highPriority: Incident? = null,
         userLat: Double? = null,
-        userLon: Double? = null
+        userLon: Double? = null,
+        radiusMiles: Double = 5.0
     ) {
         coroutineScope.launch(Dispatchers.IO) {
             try {
@@ -80,7 +81,8 @@ class WearableSyncManager(
                     activeIncidents = incidents.take(15),
                     highPriorityAlert = highPriority,
                     userLatitude = userLat,
-                    userLongitude = userLon
+                    userLongitude = userLon,
+                    radiusMiles = radiusMiles
                 )
                 val jsonString = JsonHelper.json.encodeToString(packet)
                 val data = jsonString.toByteArray(Charsets.UTF_8)

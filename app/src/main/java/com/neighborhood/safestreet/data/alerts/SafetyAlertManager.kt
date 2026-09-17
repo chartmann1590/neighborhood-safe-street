@@ -70,8 +70,12 @@ class SafetyAlertManager(
         if (!prefs.enabled) return
 
         coroutineScope.launch(Dispatchers.Default) {
+            val now = System.currentTimeMillis()
+            val maxAgeMs = 24 * 60 * 60 * 1000L
             for (incident in incidents) {
                 if (notifiedIncidentIds.contains(incident.id)) continue
+                val ageMs = now - incident.occurredAtEpochMs
+                if (ageMs !in -3600000L..maxAgeMs || incident.isExpired) continue
 
                 val distanceMiles = calculateDistance(userLat, userLon, incident.latitude, incident.longitude)
                 val matchesCategory = prefs.categories.contains(incident.category)
@@ -88,7 +92,12 @@ class SafetyAlertManager(
 
     fun triggerAlertOnRealIncident(incidents: List<Incident>, userLat: Double, userLon: Double): Incident? {
         val prefs = preferencesRepository.preferences.value
-        val target = incidents.firstOrNull() ?: return null
+        val now = System.currentTimeMillis()
+        val maxAgeMs = 24 * 60 * 60 * 1000L
+        val target = incidents.firstOrNull { 
+            val ageMs = now - it.occurredAtEpochMs
+            ageMs in -3600000L..maxAgeMs && !it.isExpired
+        } ?: return null
         val distanceMiles = calculateDistance(userLat, userLon, target.latitude, target.longitude)
         notifiedIncidentIds.add(target.id)
         triggerAlert(target, distanceMiles, prefs)

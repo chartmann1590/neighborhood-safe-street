@@ -57,13 +57,14 @@ data class ProjectedBlip(
 @Composable
 fun RadarView(
     incidents: List<Incident>,
-    userLatitude: Double = 47.6062,
-    userLongitude: Double = -122.3321,
+    userLatitude: Double = 42.8249,
+    userLongitude: Double = -73.9270,
+    selectedRange: RadarRangeOption = RadarRangeOption.RANGE_5MI,
+    onRangeSelected: (RadarRangeOption) -> Unit = {},
     onExpandMap: () -> Unit = {},
     onIncidentSelected: (Incident) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var selectedRange by remember { mutableStateOf(RadarRangeOption.RANGE_5MI) }
     var selectedBlip by remember { mutableStateOf<ProjectedBlip?>(null) }
     var projectedBlips by remember { mutableStateOf<List<ProjectedBlip>>(emptyList()) }
 
@@ -135,7 +136,15 @@ fun RadarView(
                 }
             },
             update = { mapView ->
-                // Center map whenever user GPS coordinates update
+                // Center map and scale zoom whenever user GPS coordinates or range option update
+                val targetZoom = when {
+                    effectiveRangeMiles <= 1.5 -> 15.5
+                    effectiveRangeMiles <= 6.0 -> 14.0
+                    effectiveRangeMiles <= 15.0 -> 12.5
+                    effectiveRangeMiles <= 30.0 -> 11.0
+                    else -> 9.5
+                }
+                mapView.controller.setZoom(targetZoom)
                 mapView.controller.setCenter(GeoPoint(userLatitude, userLongitude))
                 mapView.invalidate()
             },
@@ -382,7 +391,7 @@ fun RadarView(
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
                         .background(if (isSelected) AccentCyan else Color.Transparent)
-                        .clickable { selectedRange = opt }
+                        .clickable { onRangeSelected(opt) }
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>SafeStreet — Worldwide Public Safety</title>
+<meta name="description" content="Live public safety incidents near you — official dispatch feeds and community reports on one map." />
+<link rel="icon" href="app-icon-512.png" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div id="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <img src="app-icon-512.png" alt="" class="brand-icon" />
+      <div class="brand-text">
+        <h1>SafeStreet</h1>
+        <span>Worldwide Public Safety</span>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button id="locateBtn" class="btn btn-primary">📍 Use My Location</button>
+      <button id="reportBtn" class="btn btn-outline">+ Report</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <label class="sidebar-label">Source</label>
+        <div class="chip-row" id="sourceFilters">
+          <button class="chip active" data-source="all">All Sources</button>
+          <button class="chip" data-source="official">Official Only</button>
+          <button class="chip" data-source="community">Community Only</button>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <label class="sidebar-label">Category</label>
+        <select id="categoryFilter" class="select">
+          <option value="all">All Categories</option>
+          <option value="FIRE_SMOKE">🔥 Fire &amp; Smoke</option>
+          <option value="MEDICAL_RESPONSE">🚑 Medical Emergency</option>
+          <option value="POLICE_ACTIVITY">🚓 Police Activity</option>
+          <option value="VEHICLE_CRASH">💥 Vehicle Crash</option>
+          <option value="ROAD_HAZARD">🚧 Road Hazard</option>
+          <option value="HAZARD_CONDITION">⚠️ Hazardous Condition</option>
+          <option value="WEATHER_HAZARD">🌩️ Severe Weather</option>
+          <option value="OTHER_SAFETY">ℹ️ Public Safety Activity</option>
+        </select>
+      </div>
+
+      <div class="sidebar-section">
+        <label class="sidebar-label">Radius: <span id="radiusValue">10 mi</span></label>
+        <input type="range" id="radiusSlider" min="1" max="50" value="10" class="slider" />
+      </div>
+
+      <div class="sidebar-section status-section">
+        <div id="statusLine" class="status-line">Waiting for location…</div>
+      </div>
+
+      <div class="sidebar-section feed-list-wrap">
+        <label class="sidebar-label">Nearby Incidents (<span id="feedCount">0</span>)</label>
+        <div id="feedList" class="feed-list"></div>
+      </div>
+    </aside>
+
+    <main class="map-wrap">
+      <div id="map"></div>
+    </main>
+  </div>
+</div>
+
+<div id="reportModal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Report Community Observation</h2>
+      <button id="closeReportModal" class="modal-close">&times;</button>
+    </div>
+    <p class="modal-warning">⚠️ No names, victims, suspects, or plate numbers. Visible for 24 hours only.</p>
+    <label class="field-label">Category</label>
+    <select id="reportCategory" class="select">
+      <option value="fire_smoke">🔥 Fire &amp; Smoke</option>
+      <option value="medical_response">🚑 Medical Response</option>
+      <option value="vehicle_crash">💥 Vehicle Crash</option>
+      <option value="road_hazard">🚧 Road Hazard</option>
+      <option value="police_activity">🚓 Police Activity</option>
+      <option value="hazard_condition">⚠️ Hazardous Condition</option>
+      <option value="weather_hazard">🌩️ Weather Hazard</option>
+      <option value="other_safety">ℹ️ Other Safety</option>
+    </select>
+    <label class="field-label">Description (0/500)</label>
+    <textarea id="reportNote" maxlength="500" rows="4" placeholder="Factual description of what you observed…"></textarea>
+    <div class="modal-hint" id="reportLocationHint">Location: waiting for GPS…</div>
+    <button id="submitReportBtn" class="btn btn-primary btn-block">Publish Observation (Expires in 24h)</button>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
